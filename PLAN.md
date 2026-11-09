@@ -683,7 +683,7 @@ Estimates assume 2–3 core developers. They are indicative and not commitments.
 - [x] FIDO2 backend: libfido2 FFI, our own assertion verification (RP hash, UP/UV, signature, clone-detecting counter), multiple keys, optional UV with the key PIN, and cancellation of untouched keys ([ADR 0008](docs/adr/0008-security-key-backend.md)). Tested in containers with a software authenticator. *Still to do:* `pam_u2f` import, and a test with a physical key.
 - [ ] fprintd adapter backend.
 - [x] CLI `status`, `enroll pin`, `list`, `delete`, `policy`, `test`, backed by `org.tuxhello.Manager1`. *Still to do:* `doctor`.
-- [ ] `tuxhello-pam-setup` with backup/dry-run/rollback for Arch, Debian (`pam-auth-update`), and Fedora (`authselect`).
+- [x] `tuxhello-pam-setup`: per-service edits on every distro (a marked `sufficient` block, each edit proven to be "original + block"), vendor-file overrides, backups, dry run, disable, rollback; Debian system-wide via `pam-auth-update`. Tested against the real `system-auth`/`common-auth` stacks with real password fallback on Arch, Debian and Fedora. *Still to do:* an authselect feature for Fedora system-wide mode (per-service mode already works there), and openSUSE `pam-config`.
 - [ ] systemd + OpenRC service files (done in Phase 0); packages for AUR, `.deb`, and `.rpm` (COPR/PPA).
 
 **Exit criteria:** daily-drivable for `sudo`, polkit, and the lock screen on GNOME, KDE, and Sway; the lock-out safety suite is green.

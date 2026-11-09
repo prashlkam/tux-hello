@@ -24,4 +24,5 @@ fi
 
 cp -f "$target_dir/$profile/tuxhellod" "$out_dir/tuxhellod"
 cp -f "$target_dir/$profile/tuxhello" "$out_dir/tuxhello"
+cp -f "$target_dir/$profile/tuxhello-pam-setup" "$out_dir/tuxhello-pam-setup"
 cp -f "$target_dir/$profile/libpam_tuxhello.so" "$out_dir/pam_tuxhello.so"

@@ -1,0 +1,17 @@
+[package]
+name = "tuxhello-pam-setup"
+description = "Safely add or remove Tux Hello in PAM service files, with backups and rollback"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "tuxhello-pam-setup"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+nix.workspace = true
+serde.workspace = true
+toml.workspace = true

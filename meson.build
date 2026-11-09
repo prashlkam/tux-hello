@@ -31,7 +31,7 @@ if get_option('stub_backend')
 endif
 
 rust_build = custom_target('cargo-build',
-  output: ['tuxhellod', 'tuxhello', 'pam_tuxhello.so'],
+  output: ['tuxhellod', 'tuxhello', 'pam_tuxhello.so', 'tuxhello-pam-setup'],
   command: [
     files('build-aux/cargo-build.sh'), cargo,
     meson.project_source_root(),
@@ -44,7 +44,7 @@ rust_build = custom_target('cargo-build',
   build_always_stale: true,
   build_by_default: true,
   install: true,
-  install_dir: [libexecdir, bindir, pam_moduledir],
+  install_dir: [libexecdir, bindir, pam_moduledir, prefix / get_option('sbindir')],
 )
 
 conf = configuration_data()

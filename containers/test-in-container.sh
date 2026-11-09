@@ -30,4 +30,7 @@ runuser -u thdev -- tests/integration/run-unprivileged.sh /target/debug
 step "integration: root, real system bus"
 tests/integration/pam-spike.sh /target/debug/tuxhellod /target/debug/libpam_tuxhello.so /target/debug/tuxhello
 
+step "integration: tuxhello-pam-setup on the real distro PAM stack"
+tests/integration/pam-setup.sh /target/debug
+
 step "all container tests passed"

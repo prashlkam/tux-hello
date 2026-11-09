@@ -8,6 +8,7 @@ members = [
     "crates/tuxhello-daemon",
     "crates/pam-tuxhello",
     "crates/tuxhello-cli",
+    "crates/tuxhello-pam-setup",
 ]
 
 [workspace.package]

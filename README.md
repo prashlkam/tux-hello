@@ -2,7 +2,7 @@
 
 Windows Hello–style sign-in for Linux, with a PIN, face, fingerprint, voice or FIDO2 security key, on any desktop environment and distribution. The design is in [PLAN.md](PLAN.md).
 
-> **Status: Phase 1 in progress.** The PAM module, daemon, policy engine, encrypted store, a **software PIN** and **FIDO2 security keys** work end to end and are tested on Arch, Debian and Fedora. Fingerprints, the TPM-backed PIN and the safe PAM setup tool are next. Not ready for daily use yet.
+> **Status: Phase 1 in progress.** The PAM module, daemon, policy engine, encrypted store, a **software PIN** and **FIDO2 security keys** work end to end, and `tuxhello-pam-setup` turns them on safely. All of it is tested on Arch, Debian and Fedora against their real PAM stacks. Fingerprints and the TPM-backed PIN are next. Not ready for daily use yet.
 
 ## Using the CLI
 
@@ -18,6 +18,22 @@ tuxhello delete key backup        # remove one key
 tuxhello status                   # daemon, store and methods
 ```
 
+## Turning it on for sudo, polkit and screen lockers
+
+`tuxhello-pam-setup` edits PAM safely. It adds one marked `auth sufficient pam_tuxhello.so` line in front of each service's existing auth lines, so the password always remains as the fallback. Every change is backed up first.
+
+```sh
+sudo tuxhello-pam-setup status                 # what is enabled, possible conflicts
+sudo tuxhello-pam-setup enable --dry-run       # show the exact change
+sudo tuxhello-pam-setup enable                 # sudo, polkit-1 and installed screen lockers
+sudo tuxhello-pam-setup enable gdm-password    # login screens only when you name them
+sudo tuxhello-pam-setup disable --all          # remove it again
+sudo tuxhello-pam-setup rollback               # restore the previous state from backup
+sudo tuxhello-pam-setup system-wide enable     # Debian/Ubuntu: every service via pam-auth-update
+```
+
+It never touches `sshd` or shared files such as `system-auth` or `common-auth`. Services that only exist in `/usr/lib/pam.d` get an override in `/etc/pam.d`, which `disable` removes again. Keep a root shell open the first time you try it.
+
 The policy lives in `/etc/tuxhello/policy.d/*.toml`; see `crates/tuxhello-policy/src/lib.rs` for the format and the built-in defaults. `systemctl reload`, or sending SIGHUP to `tuxhellod`, re-reads it.
 
 ## Layout
@@ -31,6 +47,7 @@ The policy lives in `/etc/tuxhello/policy.d/*.toml`; see `crates/tuxhello-policy
 | `crates/pam-tuxhello` | `pam_tuxhello.so` |
 | `crates/tuxhello-daemon` | `tuxhellod`, the system daemon (zbus/tokio) |
 | `crates/tuxhello-cli` | The `tuxhello` CLI |
+| `crates/tuxhello-pam-setup` | Safe PAM configuration: enable, disable, rollback, Debian system-wide |
 | `data/` | D-Bus policy and activation file, systemd/OpenRC/sysusers/tmpfiles, example config |
 | `tests/integration/` | End-to-end PAM tests (real libpam, real system bus) |
 | `docs/adr/` | Architecture decision records |

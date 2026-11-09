@@ -1391,6 +1391,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tuxhello-pam-setup"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "nix",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "tuxhello-policy"
 version = "0.0.1"
 dependencies = [
