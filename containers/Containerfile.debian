@@ -1,0 +1,7 @@
+# Development/test image: Debian 13 (trixie). Its rustc (1.85) is our MSRV.
+FROM docker.io/library/debian:trixie
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        cargo rustc gcc libc6-dev pkg-config libpam0g-dev libdbus-1-dev \
+        dbus-daemon dbus-bin dbus-system-bus-common util-linux passwd ca-certificates \
+        libfido2-dev libtss2-dev tpm2-tools swtpm swtpm-tools \
+    && rm -rf /var/lib/apt/lists/*

@@ -52,6 +52,18 @@ target/debug/tuxhello --session-bus status
 target/debug/tuxhello --session-bus test
 ```
 
+## Testing in containers (podman)
+
+`scripts/podman-test.sh` builds a development image for each distro and runs every test inside it: unit tests, the no-root integration test, and the root integration test against a real system bus. Rootless podman works fine. All PAM and D-Bus changes happen inside the throwaway container, never on the host.
+
+```sh
+scripts/podman-test.sh all            # arch, debian (rustc = MSRV) and fedora
+scripts/podman-test.sh fedora --shell # interactive shell with the source at /src
+scripts/podman-test.sh debian --rebuild
+```
+
+The images (`containers/Containerfile.*`) already include libfido2, tpm2-tss and swtpm for Phase 1. Cargo caches live in podman volumes named `tuxhello-*`.
+
 ## End-to-end PAM test without root
 
 `tests/integration/run-unprivileged.sh` runs the real PAM path with a private `dbus-daemon` standing in for the system bus. It reads PAM services from a temporary directory (`pam_start_confdir`, Linux-PAM ≥ 1.4), installs nothing and needs no root, so it is safe to run on your own machine.
