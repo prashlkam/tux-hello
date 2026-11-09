@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/tuxhello-proto",
+    "crates/tuxhello-client",
+    "crates/tuxhello-daemon",
+    "crates/pam-tuxhello",
+    "crates/tuxhello-cli",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.85"
+repository = "https://example.invalid/tux-hello" # TODO: set once hosted
+authors = ["Tux Hello contributors"]
+
+[workspace.dependencies]
+tuxhello-proto = { path = "crates/tuxhello-proto" }
+tuxhello-client = { path = "crates/tuxhello-client" }
+
+clap = { version = "4.5", features = ["derive"] }
+dbus = "0.9"
+env_logger = "0.11"
+libc = "0.2"
+log = "0.4"
+nix = { version = "0.29", features = ["user"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "signal"] }
+toml = "0.8"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# Keep unwinding: the PAM module catches panics so that a bug can never crash
+# the host process (sudo, the greeter, the screen locker).
+panic = "unwind"

@@ -1,0 +1,13 @@
+[package]
+name = "tuxhello-client"
+description = "Small blocking client for the Tux Hello daemon (used by the PAM module and the CLI)"
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# libdbus-based, fully blocking, spawns no threads: safe to load into PAM
+# host processes such as sudo or a greeter. See ADR 0002.
+dbus.workspace = true
+tuxhello-proto.workspace = true

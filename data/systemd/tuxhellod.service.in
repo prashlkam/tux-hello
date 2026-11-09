@@ -1,0 +1,43 @@
+[Unit]
+Description=Tux Hello authentication daemon
+Documentation=https://example.invalid/tux-hello
+
+[Service]
+Type=dbus
+BusName=org.tuxhello.Auth1
+ExecStart=@libexecdir@/tuxhellod
+User=tuxhello
+Group=tuxhello
+StateDirectory=tuxhello
+StateDirectoryMode=0700
+UMask=0077
+
+# Hardening. Phase 0 needs no devices at all; real backends will replace
+# PrivateDevices= with an explicit DeviceAllow= list (PLAN.md §4.2).
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+
+# No [Install] section: the daemon is started on demand via D-Bus activation.

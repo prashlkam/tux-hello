@@ -1,0 +1,8 @@
+# D-Bus system bus activation for tuxhellod.
+# On systemd systems activation is delegated to tuxhellod.service; elsewhere
+# dbus-daemon starts the binary itself as the "tuxhello" user.
+[D-BUS Service]
+Name=org.tuxhello.Auth1
+Exec=@libexecdir@/tuxhellod
+User=tuxhello
+SystemdService=tuxhellod.service

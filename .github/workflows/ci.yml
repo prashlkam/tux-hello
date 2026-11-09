@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets
+      - run: cargo clippy --workspace --all-targets --all-features
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace --all-features
+
+  msrv:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@1.85
+      - run: cargo check --workspace --all-features
+
+  deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  meson:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config meson ninja-build systemd-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - run: meson setup build --prefix=/usr --buildtype=release
+      - run: meson compile -C build
+      - run: DESTDIR=$PWD/stage meson install -C build
+      - run: find stage -type f | sort
+
+  # End-to-end PAM tests without root: private bus + pam_start_confdir().
+  integration-unprivileged:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config dbus-daemon dbus-bin
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --workspace --features tuxhello-daemon/stub-backend
+      - run: tests/integration/run-unprivileged.sh
+
+  # End-to-end PAM tests on the host runner (real system bus, real libpam).
+  integration-host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --workspace --features tuxhello-daemon/stub-backend
+      - run: >
+          sudo tests/integration/pam-spike.sh
+          target/debug/tuxhellod target/debug/libpam_tuxhello.so target/debug/tuxhello
+
+  # Same tests inside distro containers, using each distro's own Rust and
+  # libpam. A private system bus is started inside the container.
+  integration-distro:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: archlinux:latest
+            deps: pacman -Syu --noconfirm --needed rust gcc pkgconf pam dbus util-linux shadow
+          - image: debian:trixie
+            deps: apt-get update && apt-get install -y cargo rustc gcc pkg-config libpam0g-dev libdbus-1-dev dbus dbus-bin util-linux passwd
+          - image: fedora:latest
+            deps: dnf install -y cargo rust gcc pkgconf-pkg-config pam-devel dbus-devel dbus-daemon dbus-tools util-linux shadow-utils
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Install dependencies
+        run: ${{ matrix.deps }}
+      - uses: actions/checkout@v4
+      - name: Start a system bus
+        run: |
+          mkdir -p /run/dbus
+          dbus-uuidgen --ensure
+          dbus-daemon --system --fork
+      - run: cargo build --workspace --features tuxhello-daemon/stub-backend
+      - run: tests/integration/pam-spike.sh target/debug/tuxhellod target/debug/libpam_tuxhello.so target/debug/tuxhello

@@ -1,0 +1,15 @@
+[package]
+name = "pam-tuxhello"
+description = "PAM module for Tux Hello (pam_tuxhello.so)"
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "pam_tuxhello"
+crate-type = ["cdylib"]
+
+[dependencies]
+tuxhello-client.workspace = true
+tuxhello-proto.workspace = true

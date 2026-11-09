@@ -1,0 +1,17 @@
+# Tux Hello daemon configuration: /etc/tuxhello/config.toml
+# All keys are optional; the values below are the defaults.
+
+[daemon]
+# Sessions are cancelled after this many seconds no matter what.
+session_lifetime_s = 60
+max_sessions_per_uid = 4
+max_sessions = 64
+
+# Test-only backend. It only exists in builds made with the `stub-backend`
+# feature (meson -Dstub_backend=true), which distribution packages must not
+# enable. With outcome = "success" it authenticates ANY user.
+[stub]
+enabled = false
+outcome = "unavailable"   # success | failure | unavailable
+delay_ms = 300
+users = []                # empty = everyone counts as enrolled

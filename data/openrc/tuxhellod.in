@@ -1,0 +1,19 @@
+#!/sbin/openrc-run
+# OpenRC service for the Tux Hello daemon. D-Bus activation also works
+# without this script; it exists so the daemon can be started at boot.
+
+description="Tux Hello authentication daemon"
+command="@libexecdir@/tuxhellod"
+command_user="tuxhello:tuxhello"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+output_logger="logger -t tuxhellod -p authpriv.info"
+error_logger="logger -t tuxhellod -p authpriv.err"
+
+depend() {
+	need dbus
+}
+
+start_pre() {
+	checkpath -d -m 0700 -o tuxhello:tuxhello /var/lib/tuxhello
+}

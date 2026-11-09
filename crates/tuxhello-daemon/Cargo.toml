@@ -1,0 +1,28 @@
+[package]
+name = "tuxhello-daemon"
+description = "Tux Hello system daemon (tuxhellod)"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "tuxhellod"
+path = "src/main.rs"
+
+[features]
+default = []
+# Test-only backend whose outcome is set in the config file. Never enable it in
+# distribution packages: with `outcome = "success"` it authenticates anyone.
+stub-backend = []
+
+[dependencies]
+clap.workspace = true
+env_logger.workspace = true
+log.workspace = true
+nix.workspace = true
+serde.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tuxhello-proto.workspace = true
+zbus.workspace = true

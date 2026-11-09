@@ -1,0 +1,9 @@
+[package]
+name = "tuxhello-proto"
+description = "Shared protocol definitions for Tux Hello (bus names, states, error names)"
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]

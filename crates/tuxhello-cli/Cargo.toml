@@ -1,0 +1,16 @@
+[package]
+name = "tuxhello-cli"
+description = "Command-line tool for Tux Hello"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "tuxhello"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+nix.workspace = true
+tuxhello-client.workspace = true
