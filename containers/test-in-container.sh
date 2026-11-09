@@ -17,6 +17,20 @@ dbus-uuidgen --ensure
 rm -f /run/dbus/pid
 dbus-daemon --system --fork
 
+step "fingerprint: polkitd + fprintd with a virtual sensor"
+POLKITD=$(ls /usr/lib/polkit-1/polkitd /usr/libexec/polkitd 2>/dev/null | head -1 || true)
+FPRINTD=$(ls /usr/libexec/fprintd /usr/lib/fprintd 2>/dev/null | head -1 || true)
+if [ -n "$POLKITD" ] && [ -n "$FPRINTD" ]; then
+	install -D -m 0644 data/polkit/50-tuxhello-fprintd.rules /etc/polkit-1/rules.d/50-tuxhello-fprintd.rules
+	"$POLKITD" --no-debug >/tmp/polkitd.log 2>&1 &
+	sleep 1
+	FP_VIRTUAL_DEVICE=/run/fp-virtual.sock "$FPRINTD" --no-timeout >/tmp/fprintd.log 2>&1 &
+	export TUXHELLO_FP_SOCKET=/run/fp-virtual.sock
+	echo "fprintd $FPRINTD with a virtual sensor at $TUXHELLO_FP_SOCKET"
+else
+	echo "fprintd or polkitd missing; fingerprint tests will be skipped"
+fi
+
 step "build (stub backend enabled)"
 cargo build --workspace --features tuxhello-daemon/stub-backend
 

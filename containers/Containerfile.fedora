@@ -3,5 +3,5 @@ FROM registry.fedoraproject.org/fedora:latest
 RUN dnf install -y \
         cargo rust gcc pkgconf-pkg-config pam-devel dbus-devel \
         dbus-daemon dbus-tools util-linux shadow-utils \
-        libfido2-devel tpm2-tss-devel tpm2-tools swtpm swtpm-tools \
+        libfido2-devel tpm2-tss-devel tpm2-tools swtpm swtpm-tools fprintd polkit \
     && dnf clean all

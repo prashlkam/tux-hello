@@ -2,7 +2,7 @@
 
 Windows Hello–style sign-in for Linux, with a PIN, face, fingerprint, voice or FIDO2 security key, on any desktop environment and distribution. The design is in [PLAN.md](PLAN.md).
 
-> **Status: Phase 1 in progress.** The PAM module, daemon, policy engine, encrypted store, a **software PIN** and **FIDO2 security keys** work end to end, and `tuxhello-pam-setup` turns them on safely. All of it is tested on Arch, Debian and Fedora against their real PAM stacks. Fingerprints and the TPM-backed PIN are next. Not ready for daily use yet.
+> **Status: Phase 1 in progress.** The PAM module, daemon, policy engine, encrypted store, a **software PIN** and **FIDO2 security keys** and **fingerprints (via fprintd)** work end to end, and `tuxhello-pam-setup` turns them on safely. All of it is tested on Arch, Debian and Fedora against their real PAM stacks. The TPM-backed PIN is next. Not ready for daily use yet.
 
 ## Using the CLI
 
@@ -10,6 +10,7 @@ Windows Hello–style sign-in for Linux, with a PIN, face, fingerprint, voice or
 sudo tuxhello enroll pin          # set your PIN (sudo verifies your password)
 sudo tuxhello enroll key --label yubikey   # register a FIDO2/U2F key (touch it)
 sudo tuxhello enroll key --label backup    # ...and a backup key
+tuxhello enroll fingerprint --finger right-index-finger   # via fprintd
 tuxhello list                     # what you have enrolled
 tuxhello policy sudo              # what a PAM service will accept from you
 tuxhello test --service sudo      # try a real authentication, without PAM

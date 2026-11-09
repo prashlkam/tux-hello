@@ -73,6 +73,14 @@ enum EnrollMethod {
         #[arg(long)]
         user: Option<String>,
     },
+    /// Enrol a finger with fprintd (your own without sudo; others with sudo).
+    Fingerprint {
+        /// Which finger, e.g. right-index-finger (default: fprintd chooses).
+        #[arg(long)]
+        finger: Option<String>,
+        #[arg(long)]
+        user: Option<String>,
+    },
     /// Register a FIDO2/U2F security key (enrol a backup key too).
     Key {
         /// Name for this key, e.g. "yubikey" or "backup" (default: key-N).
@@ -231,6 +239,54 @@ fn enroll_key(client: &Client, label: Option<String>, no_pin: bool, user: Option
     Ok(ExitCode::SUCCESS)
 }
 
+const FINGERS: &[&str] = &[
+    "left-thumb",
+    "left-index-finger",
+    "left-middle-finger",
+    "left-ring-finger",
+    "left-little-finger",
+    "right-thumb",
+    "right-index-finger",
+    "right-middle-finger",
+    "right-ring-finger",
+    "right-little-finger",
+];
+
+/// Fingerprints live in fprintd; its own enrolment tool shows the scan
+/// progress, so we hand over to it.
+fn enroll_fingerprint(finger: Option<String>, user: Option<String>) -> Res {
+    let (name, uid) = target_user(user)?;
+    let me = nix::unistd::getuid();
+    if !me.is_root() && me.as_raw() != uid {
+        return Err("enrolling someone else's fingerprint requires sudo".into());
+    }
+    if let Some(f) = &finger {
+        if !FINGERS.contains(&f.as_str()) {
+            return Err(format!(
+                "unknown finger {f:?}; one of: {}",
+                FINGERS.join(", ")
+            ));
+        }
+    }
+    let mut cmd = std::process::Command::new("fprintd-enroll");
+    if let Some(f) = &finger {
+        cmd.args(["-f", f]);
+    }
+    if me.is_root() {
+        cmd.arg(&name);
+    }
+    println!("Enrolling a fingerprint for {name} (follow the prompts)…");
+    let st = cmd.status().map_err(|e| {
+        format!("cannot run fprintd-enroll ({e}); install fprintd to use fingerprints")
+    })?;
+    if st.success() {
+        println!("Done. Check with `tuxhello list`.");
+        Ok(ExitCode::SUCCESS)
+    } else {
+        Err(format!("fprintd-enroll failed ({st})"))
+    }
+}
+
 fn list(client: &Client, user: Option<String>) -> Res {
     let (name, uid) = target_user(user)?;
     let v = client.list_enrollments(uid).map_err(|e| e.to_string())?;
@@ -310,6 +366,9 @@ fn main() -> ExitCode {
             Command::Enroll {
                 method: EnrollMethod::Pin { user },
             } => enroll_pin(&client, user),
+            Command::Enroll {
+                method: EnrollMethod::Fingerprint { finger, user },
+            } => enroll_fingerprint(finger, user),
             Command::Enroll {
                 method:
                     EnrollMethod::Key {

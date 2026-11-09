@@ -68,8 +68,18 @@ pub trait Backend: Send + Sync {
     fn interactive(&self) -> bool {
         false
     }
-    /// Whether the user has enrolled this method.
-    fn is_enrolled(&self, user: &str, uid: u32) -> bool;
+    /// Whether the user has enrolled this method (cheap, synchronous
+    /// backends). Used by the default [`Backend::usable`].
+    fn is_enrolled(&self, _user: &str, _uid: u32) -> bool {
+        false
+    }
+    /// Whether this method can be offered to the user right now: available
+    /// and enrolled. Backends that must ask another service (fprintd)
+    /// override this.
+    fn usable(self: Arc<Self>, user: String, uid: u32) -> BoxFuture<bool> {
+        let ok = self.available() && self.is_enrolled(&user, uid);
+        Box::pin(async move { ok })
+    }
     /// Verifies the user. Must return promptly when the future is dropped.
     fn verify(self: Arc<Self>, req: Request, progress: Progress) -> BoxFuture<Outcome>;
 }

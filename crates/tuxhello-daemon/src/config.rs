@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::fingerprint::FingerprintConfig;
 use crate::key::KeyConfig;
 use crate::pin::PinConfig;
 
@@ -22,6 +23,8 @@ pub struct Config {
     pub pin: PinConfig,
     #[serde(default)]
     pub key: KeyConfig,
+    #[serde(default)]
+    pub fingerprint: FingerprintConfig,
     #[serde(default)]
     pub stub: StubConfig,
 }

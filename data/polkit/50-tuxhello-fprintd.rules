@@ -1,0 +1,14 @@
+// Let tuxhellod (system user "tuxhello", which has no login session) use
+// fprintd on behalf of the user who is authenticating:
+//   verify       - match a finger
+//   setusername  - claim the reader for another user (the one logging in)
+//   enroll       - needed by fprintd to delete prints (tuxhello delete fingerprint)
+// Nothing else is granted, and only to that one system account.
+polkit.addRule(function (action, subject) {
+    if (subject.user == "tuxhello" &&
+        (action.id == "net.reactivated.fprint.device.verify" ||
+         action.id == "net.reactivated.fprint.device.setusername" ||
+         action.id == "net.reactivated.fprint.device.enroll")) {
+        return polkit.Result.YES;
+    }
+});

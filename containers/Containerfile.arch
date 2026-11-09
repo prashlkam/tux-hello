@@ -2,5 +2,5 @@
 FROM docker.io/library/archlinux:latest
 RUN pacman -Syu --noconfirm --needed \
         rust gcc pkgconf pam dbus util-linux shadow \
-        libfido2 tpm2-tss tpm2-tools swtpm \
+        libfido2 tpm2-tss tpm2-tools swtpm fprintd polkit \
     && pacman -Scc --noconfirm

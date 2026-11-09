@@ -14,7 +14,7 @@ use zbus::message::Header;
 use zeroize::Zeroizing;
 
 use crate::daemon::{caller_uid, may_act_on, Daemon, Error};
-use crate::pin;
+use crate::{fingerprint, pin};
 
 pub struct ManagerService {
     d: Arc<Daemon>,
@@ -99,11 +99,18 @@ impl ManagerService {
             .store
             .list(uid, None)
             .map_err(|e| Error::Failed(e.to_string()))?;
-        Ok(list
+        let mut out: Vec<(String, String)> = list
             .into_iter()
             .filter(|r| !is_internal(&r.id))
             .map(|r| (r.method, r.id))
-            .collect())
+            .collect();
+        if let Some(fp) = &self.d.fingerprint {
+            let name = user_name(uid)?;
+            for finger in fp.enrolled_fingers(&name).await {
+                out.push((fingerprint::METHOD.to_string(), finger));
+            }
+        }
+        Ok(out)
     }
 
     /// Sets or replaces a user's PIN.
@@ -171,6 +178,15 @@ impl ManagerService {
         }
         let existed = if method == pin::METHOD {
             self.d.pin.delete(uid).map_err(Error::Failed)?
+        } else if method == fingerprint::METHOD {
+            let fp = self
+                .d
+                .fingerprint
+                .as_ref()
+                .ok_or_else(|| Error::Unavailable("fingerprint support is disabled".into()))?;
+            fp.delete(&user_name(uid)?, Some(&id))
+                .await
+                .map_err(Error::Failed)?
         } else {
             self.d
                 .store
@@ -195,6 +211,11 @@ impl ManagerService {
             .store
             .delete_user(uid)
             .map_err(|e| Error::Failed(e.to_string()))?;
+        if let Some(fp) = &self.d.fingerprint {
+            if let Err(e) = fp.delete(&user_name(uid)?, None).await {
+                log::warn!("uid {uid}: deleting fingerprints failed: {e}");
+            }
+        }
         log::info!("deleted all enrolments of uid {uid} (by uid {caller})");
         Ok(())
     }
@@ -218,14 +239,17 @@ impl ManagerService {
         m.insert("require".into(), e.require.to_string());
         m.insert("min-assurance".into(), e.min_assurance.to_string());
         m.insert("timeout-s".into(), e.timeout.as_secs().to_string());
-        let usable: Vec<String> = self
+        let mut usable: Vec<String> = Vec::new();
+        for b in self
             .d
             .backends
             .iter()
             .filter(|b| e.require.methods().contains(b.name()))
-            .filter(|b| b.available() && b.is_enrolled(&user.name, uid))
-            .map(|b| format!("{}:{}", b.name(), b.assurance()))
-            .collect();
+        {
+            if b.clone().usable(user.name.clone(), uid).await {
+                usable.push(format!("{}:{}", b.name(), b.assurance()));
+            }
+        }
         m.insert("usable".into(), usable.join(","));
         Ok(m)
     }

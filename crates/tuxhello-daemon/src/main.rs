@@ -4,6 +4,7 @@ mod auth;
 mod backend;
 mod config;
 mod daemon;
+mod fingerprint;
 mod key;
 mod manager;
 mod pin;
@@ -101,6 +102,14 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(k) = &key {
         backends.push(k.clone());
     }
+    let fingerprint = cfg.fingerprint.enabled.then(|| {
+        Arc::new(fingerprint::FingerprintBackend::new(
+            cfg.fingerprint.clone(),
+        ))
+    });
+    if let Some(f) = &fingerprint {
+        backends.push(f.clone());
+    }
     add_stub(&cfg, &mut backends);
 
     let daemon = Arc::new(Daemon::new(
@@ -109,6 +118,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         backends,
         pin,
         key,
+        fingerprint,
         store,
     )?);
 

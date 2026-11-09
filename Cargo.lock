@@ -1376,6 +1376,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "env_logger",
+ "futures-util",
  "log",
  "nix",
  "p256",

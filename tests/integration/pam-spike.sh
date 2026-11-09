@@ -329,6 +329,64 @@ expect ok 5 "user deletes everything" runuser -u "$USER_A" -- "$CLI" delete --al
 expect ok 5 "list after delete" runuser -u "$USER_A" -- "$CLI" list
 out_contains "no enrolments" "nothing left"
 
+echo "== fingerprint (fprintd + libfprint virtual sensor)"
+if [ -z "${TUXHELLO_FP_SOCKET:-}" ]; then
+	echo "SKIP  no virtual fingerprint sensor (set TUXHELLO_FP_SOCKET)"
+else
+	cc -O1 -o "$WORK/th-fpscan" "$HERE/th-fpscan.c" || exit 2
+	scan() { # scan <count> <timeout-s> COMMAND... (in the background)
+		"$WORK/th-fpscan" "$TUXHELLO_FP_SOCKET" "$@" >/dev/null 2>&1 &
+		SCANNER=$!
+	}
+	start_daemon "$(base_config)"
+	expect fail 5 "nothing enrolled: fingerprint not offered" pt tuxhello-test "$USER_A"
+	scan 5 25 SCAN print-a
+	expect ok 30 "enroll a finger through fprintd" "$CLI" enroll fingerprint --finger right-index-finger --user "$USER_A"
+	wait $SCANNER
+	expect fail 5 "unknown finger name refused" "$CLI" enroll fingerprint --finger tentacle --user "$USER_A"
+	expect ok 5 "list shows the finger" runuser -u "$USER_A" -- "$CLI" list
+	out_contains "fingerprint .*right-index-finger" "finger listed"
+	expect ok 5 "policy shows fingerprint usable" runuser -u "$USER_A" -- "$CLI" policy sudo
+	out_contains "fingerprint:3" "fingerprint usable at assurance 3"
+
+	scan 1 15 SCAN print-a
+	expect ok 15 "matching finger authenticates" pt tuxhello-test "$USER_A"
+	wait $SCANNER
+	out_contains "fingerprint reader" "touch/swipe prompt reached the PAM conversation"
+
+	scan 1 15 SCAN print-a
+	expect ok 15 "matching finger (user as itself)" runuser -u "$USER_A" -- "$PAMTEST" tuxhello-test "$USER_A"
+	wait $SCANNER
+
+	scan 3 20 SCAN print-b
+	expect fail 20 "unknown finger rejected after 3 tries" pt tuxhello-test "$USER_A"
+	wait $SCANNER
+	out_contains "not recognised" "no-match reported"
+
+	( "$WORK/th-fpscan" "$TUXHELLO_FP_SOCKET" 1 15 RETRY 0 && "$WORK/th-fpscan" "$TUXHELLO_FP_SOCKET" 1 15 SCAN print-a ) >/dev/null 2>&1 &
+	SCANNER=$!
+	expect ok 15 "bad scan, retry hint, then match" pt tuxhello-test "$USER_A"
+	wait $SCANNER
+	out_contains "Try again" "retry hint shown"
+
+	expect fail 13 "no finger: policy timeout" pt tuxhello-test "$USER_A"
+	scan 1 15 SCAN print-a
+	expect ok 15 "reader was released after the timeout" pt tuxhello-test "$USER_A"
+	wait $SCANNER
+
+	INPUT=$'2468\n2468' expect ok 10 "enroll a PIN as well" "$CLI" enroll pin --user "$USER_A"
+	scan 3 20 SCAN print-b
+	INPUT=2468 expect ok 25 "three wrong fingers, then the PIN works" pt tuxhello-test "$USER_A"
+	wait $SCANNER
+
+	expect ok 10 "user deletes their finger" runuser -u "$USER_A" -- "$CLI" delete fingerprint right-index-finger
+	expect ok 5 "list after deleting the finger" runuser -u "$USER_A" -- "$CLI" list
+	grep -q fingerprint "$WORK/out" &&
+		{ echo "FAIL  finger still listed"; FAILURES=$((FAILURES + 1)); } ||
+		echo "PASS  finger gone"
+	expect ok 5 "clean up" runuser -u "$USER_A" -- "$CLI" delete --all
+fi
+
 echo
 if [ $FAILURES -eq 0 ]; then
 	echo "All integration tests passed."

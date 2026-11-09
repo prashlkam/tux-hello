@@ -48,6 +48,7 @@
 | T15 | Local user | Enrols a PIN for themselves without knowing the password, then uses it to unlock a session someone left open | Enrolment is root-only (in practice, behind `sudo`'s password check) until polkit self-enrolment arrives. | **Done (P1)** |
 | T17 | Physical | Uses a cloned or replayed security key | Fresh random challenge per login; the signature and RP ID hash are checked in Rust; a signature counter that goes backwards is refused and logged; the UP flag is required, plus UV when configured. | **Done (P1)**, tested with a software key |
 | T18 | Malicious USB device | Exploits a libfido2 parsing bug | libfido2 runs inside the daemon for now; it moves into the sandboxed key-backend process (T11). Device access is limited to hidraw by the systemd unit. | Partial |
+| T19 | Local user / malware | Uses the daemon's fprintd rights to read or replace other users' prints | The polkit rule only covers the `tuxhello` system account. The daemon only claims the reader for the user being authenticated, and enrolment is left to fprintd's own tools and permissions. Deleting another user's prints requires root. | **Done (P1)** |
 | T16 | Local user | Reads or deletes another user's enrolments | Manager calls are limited to the caller's own UID unless root. | **Done (P1)**, tested |
 
 ## 4. Phase 0 limits (known and accepted)

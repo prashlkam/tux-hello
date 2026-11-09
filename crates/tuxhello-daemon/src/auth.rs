@@ -99,15 +99,12 @@ impl AuthService {
 
         let effective = self.d.effective(&service, &user, target.gid.as_raw());
         let wanted = effective.require.methods();
-        let backends: Vec<Arc<dyn Backend>> = self
-            .d
-            .backends
-            .iter()
-            .filter(|b| {
-                wanted.contains(b.name()) && b.available() && b.is_enrolled(&user, target_uid)
-            })
-            .cloned()
-            .collect();
+        let mut backends: Vec<Arc<dyn Backend>> = Vec::new();
+        for b in self.d.backends.iter().filter(|b| wanted.contains(b.name())) {
+            if b.clone().usable(user.clone(), target_uid).await {
+                backends.push(b.clone());
+            }
+        }
         let nominal: HashMap<&str, u32> =
             backends.iter().map(|b| (b.name(), b.assurance())).collect();
         if effective.satisfied(&|m| nominal.get(m).copied()).is_none() {

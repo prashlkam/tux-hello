@@ -87,6 +87,10 @@ udev = dependency('udev', required: false)
 udevdir = udev.found() ? udev.get_variable(pkgconfig: 'udevdir', pkgconfig_define: ['prefix', prefix]) : prefix / 'lib' / 'udev'
 install_data('data/udev/70-tuxhello-fido.rules', install_dir: udevdir / 'rules.d')
 
+# polkit: let the tuxhello user use fprintd on behalf of the user logging in
+install_data('data/polkit/50-tuxhello-fprintd.rules',
+  install_dir: datadir / 'polkit-1' / 'rules.d')
+
 # OpenRC
 if get_option('openrc')
   configure_file(
