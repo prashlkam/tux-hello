@@ -676,13 +676,15 @@ Estimates assume 2–3 core developers. They are indicative and not commitments.
 **Exit criteria:** the PAM test service authenticates through the stub backend on Arch, Debian and Fedora (CI containers plus an Ubuntu runner), and falls through to the next module when the daemon is stopped, crashes, or times out.
 
 ### Phase 1 — MVP: PIN + Security key + Fingerprint (≈ 8 weeks)
-- [ ] `tuxhellod` with sessions, policy engine v1 (classes/services, any/all), rate limiting, audit log.
-- [ ] Encrypted store; TPM sealing (`swtpm` in CI); TPM-backed PIN + Argon2 fallback.
+- [x] Podman test containers for Arch, Debian (MSRV) and Fedora (`scripts/podman-test.sh`).
+- [x] `tuxhellod` with sessions and policy engine v1 (`tuxhello-policy`: classes/services/groups/users, any/all, assurance, SIGHUP reload). Concurrent-session limits exist. *Still to do:* per-user attempt rate limiting across methods, and a structured audit log (today there are only log lines).
+- [x] Encrypted store (`tuxhello-store`: AES-256-GCM, file master key). *Still to do:* TPM sealing (`swtpm` in CI).
+- [x] Software PIN: Argon2id, persistent lockout, `prompt`/`SubmitSecret` protocol ([ADR 0007](docs/adr/0007-pin-prompts-and-management.md)). *Still to do:* TPM-backed PIN.
 - [ ] FIDO2 backend (enroll/verify, multiple keys, `pam_u2f` import).
 - [ ] fprintd adapter backend.
-- [ ] CLI (`status`, `enroll`, `list`, `delete`, `test`, `doctor`).
+- [x] CLI `status`, `enroll pin`, `list`, `delete`, `policy`, `test`, backed by `org.tuxhello.Manager1`. *Still to do:* `doctor`.
 - [ ] `tuxhello-pam-setup` with backup/dry-run/rollback for Arch, Debian (`pam-auth-update`), and Fedora (`authselect`).
-- [ ] systemd + OpenRC service files; packages for AUR, `.deb`, and `.rpm` (COPR/PPA).
+- [ ] systemd + OpenRC service files (done in Phase 0); packages for AUR, `.deb`, and `.rpm` (COPR/PPA).
 
 **Exit criteria:** daily-drivable for `sudo`, polkit, and the lock screen on GNOME, KDE, and Sway; the lock-out safety suite is green.
 

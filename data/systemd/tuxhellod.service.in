@@ -6,6 +6,7 @@ Documentation=https://example.invalid/tux-hello
 Type=dbus
 BusName=org.tuxhello.Auth1
 ExecStart=@libexecdir@/tuxhellod
+ExecReload=/bin/kill -HUP $MAINPID
 User=tuxhello
 Group=tuxhello
 StateDirectory=tuxhello

@@ -1,11 +1,13 @@
-//! `tuxhello` — command-line client. Phase 0 has `status` and `test`; the
-//! enrolment and policy commands arrive with the real backends (Phase 1).
+//! `tuxhello` — command-line client.
 
+use std::io::{self, BufRead, IsTerminal, Write};
+use std::os::fd::AsFd;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
-use tuxhello_client::{AuthContext, Client, SessionState};
+use nix::sys::termios;
+use tuxhello_client::{AuthContext, Client, SessionState, Zeroizing};
 
 #[derive(Parser)]
 #[command(name = "tuxhello", version, about = "Tux Hello command-line tool")]
@@ -19,34 +21,121 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Show daemon version and available methods.
+    /// Show daemon version, store and available methods.
     Status,
     /// Run a real authentication as the current user, without PAM.
     Test {
-        /// PAM service name to report to the daemon (affects policy).
+        /// PAM service name to report to the daemon (selects the policy).
         #[arg(long, default_value = "tuxhello-test")]
         service: String,
-        /// Give up after this many seconds.
-        #[arg(long, default_value_t = 10)]
+        /// Give up after this many seconds (time spent typing is not counted).
+        #[arg(long, default_value_t = 30)]
         timeout: u64,
+    },
+    /// Enrol an authentication method (currently requires sudo).
+    Enroll {
+        #[command(subcommand)]
+        method: EnrollMethod,
+    },
+    /// List enrolments.
+    List {
+        /// User to list (default: you, or the invoking user under sudo).
+        #[arg(long)]
+        user: Option<String>,
+    },
+    /// Delete an enrolment, or everything with --all.
+    Delete {
+        /// Method (pin, key, fingerprint, ...).
+        #[arg(required_unless_present = "all")]
+        method: Option<String>,
+        /// Enrolment id (see `tuxhello list`); default "default".
+        id: Option<String>,
+        /// Delete all enrolments of the user.
+        #[arg(long, conflicts_with = "method")]
+        all: bool,
+        #[arg(long)]
+        user: Option<String>,
+    },
+    /// Show the policy that applies to a PAM service.
+    Policy {
+        /// PAM service, e.g. sudo, gdm-password, swaylock.
+        #[arg(default_value = "sudo")]
+        service: String,
+        #[arg(long)]
+        user: Option<String>,
     },
 }
 
-fn current_user() -> Result<String, String> {
+#[derive(Subcommand)]
+enum EnrollMethod {
+    /// Set or change the PIN.
+    Pin {
+        #[arg(long)]
+        user: Option<String>,
+    },
+}
+
+type Res = Result<ExitCode, String>;
+
+/// Resolves the user a command acts on: `--user`, else the user who ran
+/// sudo, else the current user.
+fn target_user(user: Option<String>) -> Result<(String, u32), String> {
+    let lookup_name = |n: &str| -> Result<(String, u32), String> {
+        nix::unistd::User::from_name(n)
+            .map_err(|e| e.to_string())?
+            .map(|u| (u.name, u.uid.as_raw()))
+            .ok_or_else(|| format!("no such user {n:?}"))
+    };
+    if let Some(u) = user {
+        return lookup_name(&u);
+    }
     let uid = nix::unistd::getuid();
+    if uid.is_root() {
+        if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+            return lookup_name(&sudo_user);
+        }
+    }
     nix::unistd::User::from_uid(uid)
         .map_err(|e| e.to_string())?
-        .map(|u| u.name)
+        .map(|u| (u.name, u.uid.as_raw()))
         .ok_or_else(|| format!("no passwd entry for uid {uid}"))
 }
 
-fn status(client: &Client) -> Result<ExitCode, String> {
-    let version = client.version().map_err(|e| e.to_string())?;
-    println!("tuxhellod {version}");
-    let backends = client.list_backends().map_err(|e| e.to_string())?;
-    if backends.is_empty() {
-        println!("No authentication methods available (password only).");
+/// Reads a secret from the terminal with echo off (or a plain line from a
+/// non-terminal stdin, for scripts).
+fn read_secret(prompt: &str) -> io::Result<Zeroizing<String>> {
+    eprint!("{prompt}");
+    io::stderr().flush()?;
+    let stdin = io::stdin();
+    let fd = stdin.as_fd();
+    let saved = if stdin.is_terminal() {
+        let old = termios::tcgetattr(fd).map_err(io::Error::from)?;
+        let mut t = old.clone();
+        t.local_flags.remove(termios::LocalFlags::ECHO);
+        termios::tcsetattr(fd, termios::SetArg::TCSANOW, &t).map_err(io::Error::from)?;
+        Some(old)
+    } else {
+        None
+    };
+    let mut line = Zeroizing::new(String::new());
+    let r = stdin.lock().read_line(&mut line);
+    if let Some(old) = saved {
+        let _ = termios::tcsetattr(fd, termios::SetArg::TCSANOW, &old);
+        eprintln!();
     }
+    r?;
+    let trimmed = line.trim_end_matches(['\n', '\r']).to_string();
+    Ok(Zeroizing::new(trimmed))
+}
+
+fn status(client: &Client) -> Res {
+    let info = client.info().map_err(|e| e.to_string())?;
+    let get = |k: &str| info.get(k).map(String::as_str).unwrap_or("?");
+    println!("tuxhellod {}", get("version"));
+    println!("  store       {} (key: {})", get("store"), get("store-key"));
+    println!("  policy dirs {}", get("policy-dirs").replace(':', ", "));
+    let backends = client.list_backends().map_err(|e| e.to_string())?;
+    println!("methods:");
     for b in backends {
         println!(
             "  {:<12} {:<12} assurance {}",
@@ -62,8 +151,8 @@ fn status(client: &Client) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn test(client: &Client, service: &str, timeout: u64) -> Result<ExitCode, String> {
-    let user = current_user()?;
+fn test(client: &Client, service: &str, timeout: u64) -> Res {
+    let (user, _) = target_user(None)?;
     let ctx = AuthContext {
         user: &user,
         service,
@@ -73,7 +162,11 @@ fn test(client: &Client, service: &str, timeout: u64) -> Result<ExitCode, String
     let deadline = Instant::now() + Duration::from_secs(timeout);
     let r = client
         .authenticate(&ctx, deadline, |ev| {
-            println!("[{}] {}", ev.method, ev.message)
+            if ev.is_prompt() {
+                return read_secret(&format!("[{}] {}", ev.method, ev.message)).ok();
+            }
+            println!("[{}] {}", ev.method, ev.message);
+            None
         })
         .map_err(|e| e.to_string())?;
     match r.state {
@@ -91,6 +184,86 @@ fn test(client: &Client, service: &str, timeout: u64) -> Result<ExitCode, String
     }
 }
 
+fn enroll_pin(client: &Client, user: Option<String>) -> Res {
+    let (name, uid) = target_user(user)?;
+    if !nix::unistd::getuid().is_root() {
+        return Err("enrolling requires root for now: run `sudo tuxhello enroll pin`".into());
+    }
+    println!("Setting the PIN for {name}.");
+    let pin = read_secret("New PIN: ").map_err(|e| e.to_string())?;
+    let again = read_secret("Repeat PIN: ").map_err(|e| e.to_string())?;
+    if *pin != *again {
+        return Err("the PINs do not match".into());
+    }
+    client.enroll_pin(uid, &pin).map_err(|e| e.to_string())?;
+    println!("PIN set for {name}.");
+    Ok(ExitCode::SUCCESS)
+}
+
+fn list(client: &Client, user: Option<String>) -> Res {
+    let (name, uid) = target_user(user)?;
+    let v = client.list_enrollments(uid).map_err(|e| e.to_string())?;
+    if v.is_empty() {
+        println!("{name} has no enrolments.");
+    } else {
+        println!("Enrolments of {name}:");
+        for (method, id) in v {
+            println!("  {method:<12} {id}");
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn delete(
+    client: &Client,
+    method: Option<String>,
+    id: Option<String>,
+    all: bool,
+    user: Option<String>,
+) -> Res {
+    let (name, uid) = target_user(user)?;
+    if all {
+        client.delete_all(uid).map_err(|e| e.to_string())?;
+        println!("Deleted all enrolments of {name}.");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let method = method.expect("clap requires method unless --all");
+    let id = id.unwrap_or_else(|| "default".into());
+    if client
+        .delete_enrollment(uid, &method, &id)
+        .map_err(|e| e.to_string())?
+    {
+        println!("Deleted {method}/{id} of {name}.");
+        Ok(ExitCode::SUCCESS)
+    } else {
+        println!("{name} has no {method}/{id} enrolment.");
+        Ok(ExitCode::from(1))
+    }
+}
+
+fn policy(client: &Client, service: &str, user: Option<String>) -> Res {
+    let (name, uid) = target_user(user)?;
+    let m = client
+        .explain_policy(uid, service)
+        .map_err(|e| e.to_string())?;
+    let get = |k: &str| m.get(k).map(String::as_str).unwrap_or("?");
+    println!("Policy for {name} on PAM service {service:?}:");
+    println!("  class          {}", get("class"));
+    println!("  requires       {}", get("require"));
+    println!("  min assurance  {}", get("min-assurance"));
+    println!("  timeout        {} s", get("timeout-s"));
+    let usable = get("usable");
+    println!(
+        "  usable now     {}",
+        if usable.is_empty() {
+            "nothing enrolled (password only)"
+        } else {
+            usable
+        }
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let connect = if cli.session_bus {
@@ -103,6 +276,17 @@ fn main() -> ExitCode {
         .and_then(|client| match cli.command {
             Command::Status => status(&client),
             Command::Test { service, timeout } => test(&client, &service, timeout),
+            Command::Enroll {
+                method: EnrollMethod::Pin { user },
+            } => enroll_pin(&client, user),
+            Command::List { user } => list(&client, user),
+            Command::Delete {
+                method,
+                id,
+                all,
+                user,
+            } => delete(&client, method, id, all, user),
+            Command::Policy { service, user } => policy(&client, &service, user),
         });
     result.unwrap_or_else(|e| {
         eprintln!("tuxhello: {e}");

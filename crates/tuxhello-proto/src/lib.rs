@@ -11,6 +11,10 @@ pub const BUS_NAME: &str = "org.tuxhello.Auth1";
 pub const OBJECT_PATH: &str = "/org/tuxhello/Auth1";
 /// Interface used for authentication.
 pub const AUTH_INTERFACE: &str = "org.tuxhello.Auth1";
+/// Object path of the management object (enrolment, listing, deletion).
+pub const MANAGER_PATH: &str = "/org/tuxhello/Manager1";
+/// Interface used for management.
+pub const MANAGER_INTERFACE: &str = "org.tuxhello.Manager1";
 
 /// Prefix for D-Bus error names returned by the daemon.
 pub const ERROR_PREFIX: &str = "org.tuxhello.Error";
@@ -30,6 +34,14 @@ pub mod ctx {
     pub const RHOST: &str = "rhost";
 }
 
+/// Well-known event states (the second field of a `Wait` event).
+pub mod event {
+    /// The method wants a secret: show the message as a PAM_PROMPT_ECHO_OFF
+    /// prompt and answer with `SubmitSecret(session, method, secret)`. An
+    /// empty secret means "skip this method".
+    pub const PROMPT: &str = "prompt";
+}
+
 /// Error names (suffixes of [`ERROR_PREFIX`]).
 pub mod error {
     pub const ACCESS_DENIED: &str = "org.tuxhello.Error.AccessDenied";
@@ -38,6 +50,7 @@ pub mod error {
     pub const NOT_ENROLLED: &str = "org.tuxhello.Error.NotEnrolled";
     pub const UNAVAILABLE: &str = "org.tuxhello.Error.Unavailable";
     pub const LIMIT_EXCEEDED: &str = "org.tuxhello.Error.LimitExceeded";
+    pub const FAILED: &str = "org.tuxhello.Error.Failed";
 }
 
 /// State of an authentication session as reported by `Wait`.
@@ -145,6 +158,7 @@ mod tests {
             error::NOT_ENROLLED,
             error::UNAVAILABLE,
             error::LIMIT_EXCEEDED,
+            error::FAILED,
         ] {
             assert!(name.starts_with(ERROR_PREFIX));
         }

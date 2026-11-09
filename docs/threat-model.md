@@ -38,12 +38,15 @@
 | T6 | Anyone | Module bug crashes `sudo` or the greeter | `catch_unwind` at the FFI boundary; no threads; libdbus calls with hard timeouts. | **Done (P0)** |
 | T7 | Local user | Impersonates the daemon on the bus | The D-Bus policy only lets `tuxhello` and root own `org.tuxhello.Auth1`. | **Done (P0)** |
 | T8 | Physical | Spoofs face (photo/screen/mask), voice (replay/TTS) or fingerprint (fake finger) | IR + liveness, digit challenge + anti-spoofing, assurance levels, and policy limits on weak methods. | P2/P4 |
-| T9 | Physical | Brute-forces the PIN | TPM dictionary-attack lockout, or persistent exponential backoff without a TPM. | P1 |
-| T10 | Offline (stolen disk) | Reads or reuses templates | AES-GCM store with a TPM-sealed key; no raw images. | P1 |
+| T9 | Physical | Brute-forces the PIN | Persistent exponential backoff (5 free attempts, then 30 s doubling to 1 h; survives restarts; unreadable state counts as locked); 3 attempts per session. TPM dictionary-attack lockout comes with the TPM PIN. | **Software lockout done (P1)**, tested; TPM pending |
+| T10 | Offline (stolen disk) | Reads or reuses templates | AES-256-GCM records bound to (uid, method, id); Argon2id PIN hashes; files 0600 in a 0700 directory. The master key is a root-only file until the TPM-sealed key lands, so a disk image still exposes the store. | **Partial (P1)** |
 | T11 | Malicious input (crafted USB or camera stream) | Exploits a parser or ML runtime bug | Backends in separate seccomp/Landlock-sandboxed processes with no network or FS write access. | P1–P5 |
 | T12 | Supply chain | Tampered crates or models | `cargo-deny` in CI (P0); `cargo-vet`, reproducible builds, signed releases and model hash verification later. | Partial |
 | T13 | Coercion / sleeping user | Unlocks the device with the owner's face | Attention check, `tuxhello lockdown`, password required on first login after boot. | P2/P3 |
 | T14 | Misconfiguration | Admin makes `pam_tuxhello` `required`, or puts the stub backend in production | The setup tool generates `sufficient` stacks. The stub backend is a compile-time feature, off by default, and logs loudly when enabled. | Partial (P0: stub gating) |
+
+| T15 | Local user | Enrols a PIN for themselves without knowing the password, then uses it to unlock a session someone left open | Enrolment is root-only (in practice, behind `sudo`'s password check) until polkit self-enrolment arrives. | **Done (P1)** |
+| T16 | Local user | Reads or deletes another user's enrolments | Manager calls are limited to the caller's own UID unless root. | **Done (P1)**, tested |
 
 ## 4. Phase 0 limits (known and accepted)
 

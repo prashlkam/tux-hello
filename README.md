@@ -2,7 +2,20 @@
 
 Windows Hello–style sign-in for Linux, with a PIN, face, fingerprint, voice or FIDO2 security key, on any desktop environment and distribution. The design is in [PLAN.md](PLAN.md).
 
-> **Status: Phase 0 (foundations).** The PAM module ↔ daemon path works end to end, but the only backend is a **test stub**. Real authentication methods arrive in Phase 1. Do not install this on a machine you care about.
+> **Status: Phase 1 in progress.** The PAM module, daemon, policy engine, encrypted store and a **software PIN** work end to end and are tested on Arch, Debian and Fedora. FIDO2 keys, fingerprints, the TPM-backed PIN and the safe PAM setup tool are next. Not ready for daily use yet.
+
+## Using the CLI
+
+```sh
+sudo tuxhello enroll pin          # set your PIN (sudo verifies your password)
+tuxhello list                     # what you have enrolled
+tuxhello policy sudo              # what a PAM service will accept from you
+tuxhello test --service sudo      # try a real authentication, without PAM
+tuxhello delete pin               # remove your PIN
+tuxhello status                   # daemon, store and methods
+```
+
+The policy lives in `/etc/tuxhello/policy.d/*.toml`; see `crates/tuxhello-policy/src/lib.rs` for the format and the built-in defaults. `systemctl reload`, or sending SIGHUP to `tuxhellod`, re-reads it.
 
 ## Layout
 
@@ -10,9 +23,11 @@ Windows Hello–style sign-in for Linux, with a PIN, face, fingerprint, voice or
 |---|---|
 | `crates/tuxhello-proto` | Bus names, session states, error names (no dependencies) |
 | `crates/tuxhello-client` | Blocking libdbus client, used by the PAM module and the CLI |
+| `crates/tuxhello-policy` | Policy files: classes, services, groups, users, any/all requirements |
+| `crates/tuxhello-store` | Encrypted per-user record store (AES-256-GCM) |
 | `crates/pam-tuxhello` | `pam_tuxhello.so` |
 | `crates/tuxhello-daemon` | `tuxhellod`, the system daemon (zbus/tokio) |
-| `crates/tuxhello-cli` | The `tuxhello` CLI (`status`, `test`) |
+| `crates/tuxhello-cli` | The `tuxhello` CLI |
 | `data/` | D-Bus policy and activation file, systemd/OpenRC/sysusers/tmpfiles, example config |
 | `tests/integration/` | End-to-end PAM tests (real libpam, real system bus) |
 | `docs/adr/` | Architecture decision records |

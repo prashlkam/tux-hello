@@ -4,6 +4,8 @@
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::ptr;
 
+use tuxhello_client::Zeroizing;
+
 #[repr(C)]
 pub struct PamHandle {
     _private: [u8; 0],
@@ -20,6 +22,7 @@ pub const PAM_SERVICE: c_int = 1;
 pub const PAM_TTY: c_int = 3;
 pub const PAM_RHOST: c_int = 4;
 
+pub const PAM_PROMPT_ECHO_OFF: c_int = 1;
 pub const PAM_TEXT_INFO: c_int = 4;
 
 pub const LOG_ERR: c_int = 3;
@@ -40,6 +43,10 @@ extern "C" {
         ...
     ) -> c_int;
     fn pam_syslog(pamh: *const PamHandle, priority: c_int, fmt: *const c_char, ...);
+}
+
+extern "C" {
+    fn free(p: *mut c_void);
 }
 
 /// Safe-ish wrapper around a PAM handle for the duration of one module call.
@@ -104,6 +111,37 @@ impl Pam {
                 c.as_ptr(),
             );
         }
+    }
+
+    /// Asks the user for a secret without echo (PAM_PROMPT_ECHO_OFF).
+    /// Returns `None` if the application's conversation fails or is aborted.
+    pub fn prompt_secret(&self, msg: &str) -> Option<Zeroizing<String>> {
+        let c = to_cstring(msg);
+        let mut resp: *mut c_char = ptr::null_mut();
+        // SAFETY: "%s" with one valid C string; on success `resp` is a
+        // malloc'd NUL-terminated string that we own and must free.
+        let rc = unsafe {
+            pam_prompt(
+                self.h,
+                PAM_PROMPT_ECHO_OFF,
+                &mut resp,
+                c"%s".as_ptr(),
+                c.as_ptr(),
+            )
+        };
+        if rc != PAM_SUCCESS || resp.is_null() {
+            return None;
+        }
+        // SAFETY: `resp` is valid until freed below.
+        let bytes = unsafe { CStr::from_ptr(resp) }.to_bytes();
+        let len = bytes.len();
+        let secret = Zeroizing::new(String::from_utf8_lossy(bytes).into_owned());
+        // SAFETY: wipe the C copy of the secret, then release it.
+        unsafe {
+            ptr::write_bytes(resp, 0, len);
+            free(resp.cast());
+        }
+        Some(secret)
     }
 
     /// Logs to syslog (authpriv) via pam_syslog.

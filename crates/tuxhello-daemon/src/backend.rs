@@ -1,14 +1,13 @@
 //! Backend interface.
 //!
-//! In Phase 0 backends run in-process. From Phase 1 on, real backends run in
+//! Backends currently run in-process. Real hardware backends will move into
 //! sandboxed child processes behind this same trait (PLAN.md §4.3).
-
-// Builds without the stub have no backend implementation yet (Phase 0).
-#![cfg_attr(not(feature = "stub-backend"), allow(dead_code))]
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+
+use zeroize::Zeroizing;
 
 use crate::session::Session;
 
@@ -18,7 +17,6 @@ pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 #[derive(Debug, Clone)]
 pub struct Request {
     pub user: String,
-    #[allow(dead_code)] // used by the real backends (Phase 1+)
     pub uid: u32,
     pub service: String,
 }
@@ -29,11 +27,11 @@ pub enum Outcome {
     Match { assurance: u32 },
     /// The backend ran but the user was not recognised.
     NoMatch,
-    /// The backend could not run (device missing, busy, ...).
+    /// The backend could not run, or the user skipped it.
     Unavailable,
 }
 
-/// Handle a backend uses to report progress to the client.
+/// Handle a backend uses to talk to the client.
 pub struct Progress {
     session: Arc<Session>,
     method: &'static str,
@@ -44,8 +42,16 @@ impl Progress {
         Progress { session, method }
     }
 
+    /// Shows an informational message.
     pub fn emit(&self, state: &str, message: &str) {
         self.session.push_event(self.method, state, message);
+    }
+
+    /// Asks the client to prompt the user for a secret (PAM_PROMPT_ECHO_OFF).
+    /// Returns `None` if the session ends before an answer arrives.
+    pub async fn request_secret(&self, prompt: &str) -> Option<Zeroizing<String>> {
+        let rx = self.session.ask_secret(self.method, prompt);
+        rx.await.ok()
     }
 }
 
@@ -56,8 +62,14 @@ pub trait Backend: Send + Sync {
     fn assurance(&self) -> u32;
     /// Whether the hardware/software this backend needs is present.
     fn available(&self) -> bool;
-    /// Whether `user` has enrolled this method.
-    fn is_enrolled(&self, user: &str) -> bool;
+    /// Interactive backends prompt the user for input. They run one at a
+    /// time, after all non-interactive backends have finished, because a
+    /// PAM prompt blocks the conversation.
+    fn interactive(&self) -> bool {
+        false
+    }
+    /// Whether the user has enrolled this method.
+    fn is_enrolled(&self, user: &str, uid: u32) -> bool;
     /// Verifies the user. Must return promptly when the future is dropped.
     fn verify(self: Arc<Self>, req: Request, progress: Progress) -> BoxFuture<Outcome>;
 }

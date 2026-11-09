@@ -3,6 +3,9 @@
 mod auth;
 mod backend;
 mod config;
+mod daemon;
+mod manager;
+mod pin;
 mod session;
 #[cfg(feature = "stub-backend")]
 mod stub;
@@ -13,10 +16,13 @@ use std::sync::Arc;
 
 use clap::Parser;
 use tokio::signal::unix::{signal, SignalKind};
-use tuxhello_proto::{BUS_NAME, OBJECT_PATH};
+use tuxhello_proto::{BUS_NAME, MANAGER_PATH, OBJECT_PATH};
+use tuxhello_store::{FileKey, Store};
 
 use crate::backend::Backend;
 use crate::config::Config;
+use crate::daemon::Daemon;
+use crate::pin::PinBackend;
 
 #[derive(Parser)]
 #[command(name = "tuxhellod", version, about = "Tux Hello authentication daemon")]
@@ -49,22 +55,26 @@ fn add_stub(cfg: &Config, _backends: &mut Vec<Arc<dyn Backend>>) {
     }
 }
 
-fn build_backends(cfg: &Config) -> Vec<Arc<dyn Backend>> {
-    let mut backends: Vec<Arc<dyn Backend>> = Vec::new();
-    add_stub(cfg, &mut backends);
-
-    if backends.is_empty() {
-        log::warn!(
-            "no authentication backends available; every request will fall back to the password"
-        );
-    }
-    backends
-}
-
 async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = Config::load(&args.config)?;
-    let backends = build_backends(&cfg);
-    let service = auth::AuthService::new(cfg.daemon, backends);
+    let store = Arc::new(Store::open(&cfg.store.path, &FileKey)?);
+    log::info!(
+        "template store {} (key: {})",
+        store.root().display(),
+        store.key_description()
+    );
+
+    let pin = Arc::new(PinBackend::new(store.clone(), cfg.pin.clone()));
+    let mut backends: Vec<Arc<dyn Backend>> = vec![pin.clone()];
+    add_stub(&cfg, &mut backends);
+
+    let daemon = Arc::new(Daemon::new(
+        cfg.daemon,
+        cfg.policy.dirs,
+        backends,
+        pin,
+        store,
+    )?);
 
     let builder = if args.session_bus {
         zbus::connection::Builder::session()?
@@ -73,7 +83,8 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     };
     let _conn = builder
         .name(BUS_NAME)?
-        .serve_at(OBJECT_PATH, service)?
+        .serve_at(OBJECT_PATH, auth::AuthService::new(daemon.clone()))?
+        .serve_at(MANAGER_PATH, manager::ManagerService::new(daemon.clone()))?
         .build()
         .await?;
     log::info!(
@@ -87,9 +98,16 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mut term = signal(SignalKind::terminate())?;
-    tokio::select! {
-        _ = term.recv() => log::info!("SIGTERM received, exiting"),
-        _ = tokio::signal::ctrl_c() => log::info!("SIGINT received, exiting"),
+    let mut hup = signal(SignalKind::hangup())?;
+    loop {
+        tokio::select! {
+            _ = term.recv() => { log::info!("SIGTERM received, exiting"); break; }
+            _ = tokio::signal::ctrl_c() => { log::info!("SIGINT received, exiting"); break; }
+            _ = hup.recv() => match daemon.reload_policy() {
+                Ok(()) => log::info!("SIGHUP: policy reloaded"),
+                Err(e) => log::error!("SIGHUP: policy reload failed, keeping the old one: {e}"),
+            },
+        }
     }
     Ok(())
 }

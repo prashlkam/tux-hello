@@ -3,6 +3,8 @@ resolver = "3"
 members = [
     "crates/tuxhello-proto",
     "crates/tuxhello-client",
+    "crates/tuxhello-policy",
+    "crates/tuxhello-store",
     "crates/tuxhello-daemon",
     "crates/pam-tuxhello",
     "crates/tuxhello-cli",
@@ -18,6 +20,8 @@ authors = ["Tux Hello contributors"]
 [workspace.dependencies]
 tuxhello-proto = { path = "crates/tuxhello-proto" }
 tuxhello-client = { path = "crates/tuxhello-client" }
+tuxhello-policy = { path = "crates/tuxhello-policy" }
+tuxhello-store = { path = "crates/tuxhello-store" }
 
 clap = { version = "4.5", features = ["derive"] }
 dbus = "0.9"

@@ -1,0 +1,12 @@
+[package]
+name = "tuxhello-store"
+description = "Encrypted per-user template store for Tux Hello"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aes-gcm = "0.10"
+getrandom = "0.3"
+zeroize = { version = "1", features = ["derive"] }

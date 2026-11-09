@@ -17,6 +17,7 @@ default = []
 stub-backend = []
 
 [dependencies]
+argon2 = "0.5"
 clap.workspace = true
 env_logger.workspace = true
 log.workspace = true
@@ -24,5 +25,8 @@ nix.workspace = true
 serde.workspace = true
 tokio.workspace = true
 toml.workspace = true
+tuxhello-policy.workspace = true
 tuxhello-proto.workspace = true
+tuxhello-store.workspace = true
 zbus.workspace = true
+zeroize = "1"

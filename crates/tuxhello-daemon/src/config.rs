@@ -1,8 +1,10 @@
 //! Daemon configuration (`/etc/tuxhello/config.toml`).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+use crate::pin::PinConfig;
 
 pub const DEFAULT_PATH: &str = "/etc/tuxhello/config.toml";
 
@@ -11,6 +13,12 @@ pub const DEFAULT_PATH: &str = "/etc/tuxhello/config.toml";
 pub struct Config {
     #[serde(default)]
     pub daemon: DaemonConfig,
+    #[serde(default)]
+    pub store: StoreConfig,
+    #[serde(default)]
+    pub policy: PolicyConfig,
+    #[serde(default)]
+    pub pin: PinConfig,
     #[serde(default)]
     pub stub: StubConfig,
 }
@@ -30,7 +38,7 @@ pub struct DaemonConfig {
 }
 
 fn default_session_lifetime() -> u64 {
-    60
+    120
 }
 fn default_max_sessions_per_uid() -> usize {
     4
@@ -45,6 +53,50 @@ impl Default for DaemonConfig {
             session_lifetime_s: default_session_lifetime(),
             max_sessions_per_uid: default_max_sessions_per_uid(),
             max_sessions: default_max_sessions(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StoreConfig {
+    /// Template store directory.
+    #[serde(default = "default_store_path")]
+    pub path: PathBuf,
+}
+
+fn default_store_path() -> PathBuf {
+    PathBuf::from(tuxhello_store::DEFAULT_ROOT)
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        StoreConfig {
+            path: default_store_path(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyConfig {
+    /// Directories of `*.toml` policy files, merged in order over the
+    /// built-in defaults.
+    #[serde(default = "default_policy_dirs")]
+    pub dirs: Vec<PathBuf>,
+}
+
+fn default_policy_dirs() -> Vec<PathBuf> {
+    vec![
+        PathBuf::from("/usr/share/tuxhello/policy.d"),
+        PathBuf::from("/etc/tuxhello/policy.d"),
+    ]
+}
+
+impl Default for PolicyConfig {
+    fn default() -> Self {
+        PolicyConfig {
+            dirs: default_policy_dirs(),
         }
     }
 }
@@ -65,10 +117,16 @@ pub struct StubConfig {
     /// Users considered "enrolled". Empty means every user.
     #[serde(default)]
     pub users: Vec<String>,
+    /// Assurance reported on success.
+    #[serde(default = "default_stub_assurance")]
+    pub assurance: u32,
 }
 
 fn default_stub_delay() -> u64 {
     300
+}
+fn default_stub_assurance() -> u32 {
+    2
 }
 
 impl Default for StubConfig {
@@ -78,6 +136,7 @@ impl Default for StubConfig {
             outcome: StubOutcome::default(),
             delay_ms: default_stub_delay(),
             users: Vec::new(),
+            assurance: default_stub_assurance(),
         }
     }
 }
@@ -117,13 +176,23 @@ mod tests {
         let c = Config::parse("").unwrap();
         assert!(!c.stub.enabled);
         assert_eq!(c.stub.outcome, StubOutcome::Unavailable);
-        assert_eq!(c.daemon.session_lifetime_s, 60);
+        assert_eq!(c.daemon.session_lifetime_s, 120);
+        assert_eq!(c.store.path, PathBuf::from("/var/lib/tuxhello"));
+        assert_eq!(c.policy.dirs.len(), 2);
+        assert_eq!(c.pin.min_length, 4);
     }
 
     #[test]
-    fn parses_stub_section() {
+    fn parses_all_sections() {
         let c = Config::parse(
             r#"
+            [store]
+            path = "/tmp/x"
+            [policy]
+            dirs = ["/a"]
+            [pin]
+            min_length = 6
+            allow_alnum = false
             [stub]
             enabled = true
             outcome = "success"
@@ -135,11 +204,16 @@ mod tests {
         assert!(c.stub.enabled);
         assert_eq!(c.stub.outcome, StubOutcome::Success);
         assert_eq!(c.stub.users, vec!["alice".to_string()]);
+        assert_eq!(c.store.path, PathBuf::from("/tmp/x"));
+        assert_eq!(c.policy.dirs, vec![PathBuf::from("/a")]);
+        assert_eq!(c.pin.min_length, 6);
+        assert!(!c.pin.allow_alnum);
     }
 
     #[test]
     fn rejects_unknown_keys() {
         assert!(Config::parse("[stub]\nbogus = 1\n").is_err());
+        assert!(Config::parse("[pin]\nbogus = 1\n").is_err());
     }
 
     #[test]

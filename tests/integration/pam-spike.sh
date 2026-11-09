@@ -51,6 +51,8 @@ chmod 0755 "$WORK"
 cc -O1 -o "$WORK/th-pamtest" "$HERE/th-pamtest.c" -lpam -lpam_misc || exit 2
 PAMTEST="$WORK/th-pamtest"
 
+mkdir -p "$WORK/policy.d"
+
 for u in "$USER_A" "$USER_B"; do
 	id "$u" >/dev/null 2>&1 || useradd --no-create-home --shell /usr/sbin/nologin "$u"
 done
@@ -83,7 +85,12 @@ stop_daemon() {
 	fi
 }
 
+base_config() { # store and policy inside $WORK
+	printf '[store]\npath = "%s"\n[policy]\ndirs = ["%s"]\n' "$WORK/store" "$WORK/policy.d"
+}
+
 stub_config() { # $1 outcome, $2 delay_ms, $3 users (TOML array)
+	base_config
 	printf '[stub]\nenabled = true\noutcome = "%s"\ndelay_ms = %s\nusers = %s\n' "$1" "$2" "$3"
 }
 
@@ -93,7 +100,12 @@ expect() {
 	shift 3
 	local start end rc got
 	start=$(date +%s)
-	"$@" </dev/null >"$WORK/out" 2>&1
+	# Set INPUT=... for commands that read a PIN from stdin.
+	if [ -n "${INPUT+x}" ]; then
+		"$@" <<<"$INPUT" >"$WORK/out" 2>&1
+	else
+		"$@" </dev/null >"$WORK/out" 2>&1
+	fi
 	rc=$?
 	end=$(date +%s)
 	if [ $rc -eq 0 ]; then got=ok; else got=fail; fi
@@ -101,6 +113,16 @@ expect() {
 		printf 'PASS  %s\n' "$desc"
 	else
 		printf 'FAIL  %s (wanted %s, got %s rc=%d in %ss)\n' "$desc" "$want" "$got" $rc $((end - start))
+		sed 's/^/      | /' "$WORK/out"
+		FAILURES=$((FAILURES + 1))
+	fi
+}
+
+out_contains() { # $1 pattern, $2 description
+	if grep -q "$1" "$WORK/out"; then
+		printf 'PASS  %s\n' "$2"
+	else
+		printf 'FAIL  %s\n' "$2"
 		sed 's/^/      | /' "$WORK/out"
 		FAILURES=$((FAILURES + 1))
 	fi
@@ -166,6 +188,62 @@ wait "$KILLER"
 wait "$DAEMON_PID" 2>/dev/null
 DAEMON_PID=""
 expect ok 5 "after crash, falls through" pt tuxhello-test-fallthrough "$USER_A"
+
+echo "== PIN"
+start_daemon "$(base_config)"
+INPUT=$'2468\n2468' expect fail 5 "unprivileged user cannot enroll a PIN" \
+	runuser -u "$USER_A" -- "$CLI" enroll pin
+INPUT=$'2468\n2468' expect ok 10 "root enrolls a PIN for $USER_A" "$CLI" enroll pin --user "$USER_A"
+INPUT=$'12\n12' expect fail 10 "too-short PIN is rejected" "$CLI" enroll pin --user "$USER_B"
+expect ok 5 "user lists own enrolments" runuser -u "$USER_A" -- "$CLI" list
+out_contains "pin" "list shows the PIN"
+grep -q "_lockout" "$WORK/out" && { echo "FAIL  internal records are listed"; FAILURES=$((FAILURES + 1)); }
+expect fail 5 "user cannot list someone else's enrolments" runuser -u "$USER_B" -- "$CLI" list --user "$USER_A"
+expect ok 5 "policy explanation" runuser -u "$USER_A" -- "$CLI" policy sudo
+out_contains "pin:2" "policy shows the PIN as usable"
+[ -z "$(find "$WORK/store" -type f -name '*.rec' -perm /077)" ] &&
+	echo "PASS  store records are private (0600)" ||
+	{ echo "FAIL  store records readable by others"; FAILURES=$((FAILURES + 1)); }
+grep -rq 2468 "$WORK/store" &&
+	{ echo "FAIL  PIN found in plain text in the store"; FAILURES=$((FAILURES + 1)); } ||
+	echo "PASS  PIN is not stored in plain text"
+
+INPUT=2468 expect ok 10 "correct PIN authenticates (root caller)" pt tuxhello-test "$USER_A"
+out_contains "PIN" "PIN prompt reached the PAM conversation"
+INPUT=2468 expect ok 10 "correct PIN authenticates (user as itself)" \
+	runuser -u "$USER_A" -- "$PAMTEST" tuxhello-test "$USER_A"
+INPUT=2468 expect fail 10 "PIN is not offered to remote sessions" pt tuxhello-test "$USER_A" -r 203.0.113.7
+INPUT='' expect fail 5 "empty PIN skips to the next module" pt tuxhello-test "$USER_A"
+INPUT='' expect ok 5 "...which then succeeds (fallthrough stack)" pt tuxhello-test-fallthrough "$USER_A"
+INPUT=$'1111\n2222\n3333' expect fail 15 "three wrong PINs fail the session" pt tuxhello-test "$USER_A"
+out_contains "Incorrect PIN" "wrong PIN is reported"
+INPUT=$'1111\n2222\n2468' expect fail 15 "5th failure locks the PIN, even before the right one" pt tuxhello-test "$USER_A"
+out_contains "locked" "lockout is reported"
+INPUT=2468 expect fail 10 "locked PIN refuses the correct PIN" pt tuxhello-test "$USER_A"
+start_daemon "$(base_config)"
+INPUT=2468 expect fail 10 "lockout survives a daemon restart" pt tuxhello-test "$USER_A"
+INPUT=$'1357\n1357' expect ok 10 "root resets the PIN" "$CLI" enroll pin --user "$USER_A"
+INPUT=1357 expect ok 10 "new PIN works and the lockout is cleared" pt tuxhello-test "$USER_A"
+
+echo "== policy reload (SIGHUP)"
+printf '[class.other]\nrequire = "key"\n' >"$WORK/policy.d/50-key-only.toml"
+kill -HUP "$DAEMON_PID"
+sleep 0.5
+INPUT=1357 expect fail 5 "policy requiring a key rejects the PIN" pt tuxhello-test "$USER_A"
+expect ok 5 "...and falls through" pt tuxhello-test-fallthrough "$USER_A"
+printf '[class.other]\nrequire = "pin"\nmin_assurance = 9\n' >"$WORK/policy.d/50-key-only.toml"
+kill -HUP "$DAEMON_PID"
+sleep 0.5
+INPUT=1357 expect fail 5 "an invalid policy file keeps the previous policy" pt tuxhello-test "$USER_A"
+rm "$WORK/policy.d/50-key-only.toml"
+kill -HUP "$DAEMON_PID"
+sleep 0.5
+INPUT=1357 expect ok 10 "PIN accepted again after the policy is removed" pt tuxhello-test "$USER_A"
+
+echo "== delete"
+expect ok 5 "user deletes own PIN" runuser -u "$USER_A" -- "$CLI" delete pin
+INPUT=1357 expect fail 5 "deleted PIN no longer works" pt tuxhello-test "$USER_A"
+expect ok 5 "...and falls through" pt tuxhello-test-fallthrough "$USER_A"
 
 echo
 if [ $FAILURES -eq 0 ]; then

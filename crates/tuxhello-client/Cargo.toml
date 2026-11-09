@@ -11,3 +11,4 @@ rust-version.workspace = true
 # host processes such as sudo or a greeter. See ADR 0002.
 dbus.workspace = true
 tuxhello-proto.workspace = true
+zeroize = "1"

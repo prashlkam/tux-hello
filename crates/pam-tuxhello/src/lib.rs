@@ -16,7 +16,9 @@
 //!
 //! Module arguments:
 //! * `debug`        — log more detail to syslog (authpriv).
-//! * `timeout=N`    — give up after N seconds (1–120, default 10).
+//! * `timeout=N`    — give up after N seconds (1–120, default 30). This is a
+//!   safety net: the daemon applies the policy's own timeout, and time the
+//!   user spends typing a PIN is not counted.
 
 mod ffi;
 
@@ -30,7 +32,7 @@ use ffi::{
 };
 use tuxhello_client::{AuthContext, Client, ClientError, SessionState};
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// PAM services for which the module never does anything.
@@ -127,10 +129,16 @@ fn authenticate(pam: &Pam, flags: c_int, opts: &Options) -> c_int {
     let deadline = Instant::now() + opts.timeout;
 
     let result = client.authenticate(&ctx, deadline, |ev| {
+        if ev.is_prompt() {
+            debug(&format!("prompt from {}", ev.method));
+            // Prompts are shown even with PAM_SILENT: they need an answer.
+            return pam.prompt_secret(&ev.message);
+        }
         debug(&format!("event {}/{}: {}", ev.method, ev.state, ev.message));
         if !silent && !ev.message.is_empty() {
             pam.info(&ev.message);
         }
+        None
     });
 
     match result {

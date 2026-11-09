@@ -12,7 +12,11 @@ use dbus::arg::{PropMap, RefArg, Variant};
 use dbus::blocking::Connection;
 
 pub use tuxhello_proto::SessionState;
-use tuxhello_proto::{ctx, error, AUTH_INTERFACE, BUS_NAME, MAX_WAIT_MS, OBJECT_PATH};
+pub use zeroize::Zeroizing;
+
+use tuxhello_proto::{
+    ctx, error, AUTH_INTERFACE, BUS_NAME, MANAGER_INTERFACE, MANAGER_PATH, MAX_WAIT_MS, OBJECT_PATH,
+};
 
 /// Timeout for short calls (`BeginAuth`, `Cancel`, ...).
 const CALL_TIMEOUT: Duration = Duration::from_secs(3);
@@ -82,6 +86,13 @@ pub struct Event {
     pub state: String,
     /// Human-readable, already localised message suitable for PAM_TEXT_INFO.
     pub message: String,
+}
+
+impl Event {
+    /// True if the daemon wants the user to type a secret (PIN).
+    pub fn is_prompt(&self) -> bool {
+        self.state == tuxhello_proto::event::PROMPT
+    }
 }
 
 /// Result of a single `Wait` call.
@@ -228,18 +239,40 @@ impl Client {
             .map_err(map_err)
     }
 
+    /// Answers a `prompt` event. An empty secret skips the method.
+    pub fn submit_secret(
+        &self,
+        session: &str,
+        method: &str,
+        secret: &str,
+    ) -> Result<(), ClientError> {
+        self.proxy(CALL_TIMEOUT)
+            .method_call::<(), _, _, _>(AUTH_INTERFACE, "SubmitSecret", (session, method, secret))
+            .map_err(map_err)
+    }
+
     /// Runs a whole authentication: begins a session and polls until it ends
-    /// or `deadline` passes. `on_event` is called for every progress event.
+    /// or `deadline` passes.
+    ///
+    /// `on_event` is called for every event. For `prompt` events
+    /// ([`Event::is_prompt`]) its return value is sent back as the answer;
+    /// `None` sends an empty answer, which skips that method. Time spent
+    /// waiting for the user to answer a prompt does not count against
+    /// `deadline`.
     ///
     /// On deadline the session is cancelled and `SessionState::Cancelled` is
     /// returned.
     pub fn authenticate(
         &self,
         c: &AuthContext<'_>,
-        deadline: Instant,
-        mut on_event: impl FnMut(&Event),
+        mut deadline: Instant,
+        mut on_event: impl FnMut(&Event) -> Option<Zeroizing<String>>,
     ) -> Result<WaitResult, ClientError> {
         let id = self.begin_auth(c)?;
+        let fail = |e: ClientError| {
+            let _ = self.cancel(&id);
+            Err(e)
+        };
         loop {
             let now = Instant::now();
             if now >= deadline {
@@ -253,17 +286,84 @@ impl Client {
             }
             let r = match self.wait(&id, deadline - now) {
                 Ok(r) => r,
-                Err(e) => {
-                    let _ = self.cancel(&id);
-                    return Err(e);
-                }
+                Err(e) => return fail(e),
             };
             for ev in &r.events {
-                on_event(ev);
+                if ev.is_prompt() && !r.state.is_terminal() {
+                    let asked = Instant::now();
+                    let answer = on_event(ev).unwrap_or_default();
+                    deadline += asked.elapsed();
+                    if let Err(e) = self.submit_secret(&id, &ev.method, &answer) {
+                        return fail(e);
+                    }
+                } else {
+                    on_event(ev);
+                }
             }
             if r.state.is_terminal() {
                 return Ok(r);
             }
         }
+    }
+
+    // --- org.tuxhello.Manager1 ---------------------------------------------
+
+    fn manager(&self, timeout: Duration) -> dbus::blocking::Proxy<'_, &Connection> {
+        self.conn.with_proxy(BUS_NAME, MANAGER_PATH, timeout)
+    }
+
+    /// Daemon information (version, store, policy directories).
+    pub fn info(&self) -> Result<HashMap<String, String>, ClientError> {
+        let (m,): (HashMap<String, String>,) = self
+            .manager(CALL_TIMEOUT)
+            .method_call(MANAGER_INTERFACE, "GetInfo", ())
+            .map_err(map_err)?;
+        Ok(m)
+    }
+
+    /// Lists a user's enrolments as (method, id).
+    pub fn list_enrollments(&self, uid: u32) -> Result<Vec<(String, String)>, ClientError> {
+        let (v,): (Vec<(String, String)>,) = self
+            .manager(CALL_TIMEOUT)
+            .method_call(MANAGER_INTERFACE, "ListEnrollments", (uid,))
+            .map_err(map_err)?;
+        Ok(v)
+    }
+
+    /// Sets or replaces a user's PIN (root only for now).
+    pub fn enroll_pin(&self, uid: u32, pin: &str) -> Result<(), ClientError> {
+        // Hashing with Argon2 takes a moment; allow for it.
+        self.manager(Duration::from_secs(30))
+            .method_call::<(), _, _, _>(MANAGER_INTERFACE, "EnrollPin", (uid, pin))
+            .map_err(map_err)
+    }
+
+    /// Deletes one enrolment. Returns whether it existed.
+    pub fn delete_enrollment(&self, uid: u32, method: &str, id: &str) -> Result<bool, ClientError> {
+        let (b,): (bool,) = self
+            .manager(CALL_TIMEOUT)
+            .method_call(MANAGER_INTERFACE, "DeleteEnrollment", (uid, method, id))
+            .map_err(map_err)?;
+        Ok(b)
+    }
+
+    /// Deletes everything stored for a user.
+    pub fn delete_all(&self, uid: u32) -> Result<(), ClientError> {
+        self.manager(CALL_TIMEOUT)
+            .method_call::<(), _, _, _>(MANAGER_INTERFACE, "DeleteAll", (uid,))
+            .map_err(map_err)
+    }
+
+    /// Describes the effective policy for `uid` and a PAM service.
+    pub fn explain_policy(
+        &self,
+        uid: u32,
+        service: &str,
+    ) -> Result<HashMap<String, String>, ClientError> {
+        let (m,): (HashMap<String, String>,) = self
+            .manager(CALL_TIMEOUT)
+            .method_call(MANAGER_INTERFACE, "ExplainPolicy", (uid, service))
+            .map_err(map_err)?;
+        Ok(m)
     }
 }

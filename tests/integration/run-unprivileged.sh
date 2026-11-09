@@ -51,7 +51,7 @@ cc -O1 -o "$WORK/th-pamtest" "$HERE/th-pamtest.c" -lpam -lpam_misc || exit 2
 
 PAMDIR=$(dirname "$(find /lib /lib64 /usr/lib /usr/lib64 -name pam_deny.so -print -quit 2>/dev/null)")
 [ -d "$PAMDIR" ] || { echo "cannot find PAM module directory" >&2; exit 2; }
-mkdir "$WORK/pam.d"
+mkdir "$WORK/pam.d" "$WORK/policy.d"
 for svc in tuxhello-test tuxhello-test-fallthrough; do
 	# Same stacks as pam.d/, with absolute module paths.
 	sed -e "s|pam_tuxhello.so|$MODULE|" -e "s|pam_\(deny\|permit\).so|$PAMDIR/pam_\1.so|" \
@@ -90,7 +90,10 @@ done
 
 start_daemon() { # $1 outcome, $2 delay_ms, $3 users (TOML array)
 	stop_daemon
-	printf '[stub]\nenabled = true\noutcome = "%s"\ndelay_ms = %s\nusers = %s\n' "$1" "$2" "$3" >"$WORK/config.toml"
+	{
+		printf '[store]\npath = "%s"\n[policy]\ndirs = ["%s"]\n' "$WORK/store" "$WORK/policy.d"
+		printf '[stub]\nenabled = true\noutcome = "%s"\ndelay_ms = %s\nusers = %s\n' "$1" "$2" "$3"
+	} >"$WORK/config.toml"
 	RUST_LOG=info "$DAEMON" --config "$WORK/config.toml" >>"$WORK/daemon.log" 2>&1 &
 	DAEMON_PID=$!
 	for _ in $(seq 50); do
@@ -160,6 +163,12 @@ expect fail 3 "unknown user" pt tuxhello-test no-such-user-xyz
 expect ok 3 "CLI status" "$CLI" status
 out_contains "stub" "CLI lists the stub backend"
 expect ok 3 "CLI test" "$CLI" test
+expect fail 3 "non-root PIN enrolment is refused" sh -c "printf '2468\n2468\n' | '$CLI' enroll pin"
+out_contains "sudo" "refusal explains how to enrol"
+expect ok 3 "CLI list (own enrolments)" "$CLI" list
+expect fail 3 "CLI list of another user is refused" "$CLI" list --user root
+expect ok 3 "CLI policy" "$CLI" policy sudo
+out_contains "elevate" "sudo maps to the elevate class"
 
 echo "== stub: failure"
 start_daemon failure 200 '[]'

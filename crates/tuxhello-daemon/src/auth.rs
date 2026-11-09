@@ -1,82 +1,39 @@
-//! The `org.tuxhello.Auth1` D-Bus interface.
+//! The `org.tuxhello.Auth1` D-Bus interface (used by the PAM module).
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tuxhello_proto::{ctx, is_remote_host, MAX_WAIT_MS};
+use zbus::interface;
 use zbus::message::Header;
-use zbus::names::BusName;
 use zbus::zvariant::OwnedValue;
-use zbus::{interface, DBusError};
+use zeroize::Zeroizing;
 
 use crate::backend::{Backend, Request};
-use crate::config::DaemonConfig;
+use crate::daemon::{caller_uid, may_act_on, sender_name, Daemon, Error};
 use crate::session::{self, Session};
-
-/// Errors returned over D-Bus as `org.tuxhello.Error.<Variant>`.
-/// Keep the names in sync with `tuxhello_proto::error`.
-#[derive(Debug, DBusError)]
-#[zbus(prefix = "org.tuxhello.Error")]
-pub enum Error {
-    #[zbus(error)]
-    ZBus(zbus::Error),
-    AccessDenied(String),
-    InvalidArgs(String),
-    NoSuchSession(String),
-    NotEnrolled(String),
-    Unavailable(String),
-    LimitExceeded(String),
-}
 
 type WaitReply = (Vec<(String, String, String)>, String, String, u32);
 
 pub struct AuthService {
-    config: DaemonConfig,
-    backends: Vec<Arc<dyn Backend>>,
-    sessions: Arc<Mutex<HashMap<String, Arc<Session>>>>,
+    d: Arc<Daemon>,
 }
 
 impl AuthService {
-    pub fn new(config: DaemonConfig, backends: Vec<Arc<dyn Backend>>) -> Self {
-        AuthService {
-            config,
-            backends,
-            sessions: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    fn sessions(&self) -> MutexGuard<'_, HashMap<String, Arc<Session>>> {
-        self.sessions.lock().unwrap_or_else(|p| p.into_inner())
+    pub fn new(d: Arc<Daemon>) -> Self {
+        AuthService { d }
     }
 
     /// Finds a session and checks that the caller owns it.
     fn owned_session(&self, hdr: &Header<'_>, id: &str) -> Result<Arc<Session>, Error> {
         let sender = sender_name(hdr)?;
-        let sessions = self.sessions();
-        match sessions.get(id) {
+        match self.d.sessions().get(id) {
             // Same error for "missing" and "not yours": don't leak session ids.
             Some(s) if s.owner == sender => Ok(s.clone()),
             _ => Err(Error::NoSuchSession(id.to_string())),
         }
     }
-}
-
-fn sender_name(hdr: &Header<'_>) -> Result<String, Error> {
-    hdr.sender()
-        .map(|s| s.as_str().to_string())
-        .ok_or_else(|| Error::AccessDenied("message has no sender".into()))
-}
-
-/// Returns the UID of the process that sent `hdr`, as reported by the bus.
-async fn caller_uid(conn: &zbus::Connection, hdr: &Header<'_>) -> Result<u32, Error> {
-    let sender = hdr
-        .sender()
-        .ok_or_else(|| Error::AccessDenied("message has no sender".into()))?;
-    let dbus = zbus::fdo::DBusProxy::new(conn).await?;
-    dbus.get_connection_unix_user(BusName::Unique(sender.to_owned()))
-        .await
-        .map_err(|e| Error::AccessDenied(format!("cannot identify caller: {e}")))
 }
 
 fn take_string(map: &mut HashMap<String, OwnedValue>, key: &str) -> Result<Option<String>, Error> {
@@ -88,13 +45,6 @@ fn take_string(map: &mut HashMap<String, OwnedValue>, key: &str) -> Result<Optio
     }
 }
 
-/// A caller may authenticate itself; only root may authenticate others.
-/// This mirrors unix_chkpwd: unprivileged screen lockers can verify their
-/// own user, but cannot be used as an oracle for other accounts.
-fn may_authenticate(caller_uid: u32, target_uid: u32) -> bool {
-    caller_uid == 0 || caller_uid == target_uid
-}
-
 #[interface(name = "org.tuxhello.Auth1")]
 impl AuthService {
     /// Daemon version.
@@ -104,7 +54,8 @@ impl AuthService {
 
     /// Lists backends as (name, available, assurance).
     async fn list_backends(&self) -> Vec<(String, bool, u32)> {
-        self.backends
+        self.d
+            .backends
             .iter()
             .map(|b| (b.name().to_string(), b.available(), b.assurance()))
             .collect()
@@ -136,7 +87,7 @@ impl AuthService {
             .ok_or_else(|| Error::NotEnrolled(format!("no usable method for {user}")))?;
         let target_uid = target.uid.as_raw();
 
-        if !may_authenticate(caller, target_uid) {
+        if !may_act_on(caller, target_uid) {
             log::warn!("uid {caller} tried to authenticate as {user:?} via {service:?}: denied");
             return Err(Error::AccessDenied(
                 "may only authenticate as yourself".into(),
@@ -146,50 +97,67 @@ impl AuthService {
             return Err(Error::Unavailable("not offered to remote sessions".into()));
         }
 
+        let effective = self.d.effective(&service, &user, target.gid.as_raw());
+        let wanted = effective.require.methods();
         let backends: Vec<Arc<dyn Backend>> = self
+            .d
             .backends
             .iter()
-            .filter(|b| b.available() && b.is_enrolled(&user))
+            .filter(|b| {
+                wanted.contains(b.name()) && b.available() && b.is_enrolled(&user, target_uid)
+            })
             .cloned()
             .collect();
-        if backends.is_empty() {
+        let nominal: HashMap<&str, u32> =
+            backends.iter().map(|b| (b.name(), b.assurance())).collect();
+        if effective.satisfied(&|m| nominal.get(m).copied()).is_none() {
+            log::info!(
+                "user {user:?} service {service:?}: enrolled methods {:?} cannot satisfy {} \
+                 (class {}, min assurance {})",
+                nominal.keys().collect::<Vec<_>>(),
+                effective.require,
+                effective.class,
+                effective.min_assurance
+            );
             return Err(Error::NotEnrolled(format!("no usable method for {user}")));
         }
 
         let id = session::new_session_id()
             .map_err(|e| Error::Unavailable(format!("cannot create session id: {e}")))?;
-        let session = Arc::new(Session::new(id.clone(), owner, caller, user.clone()));
+        let session = Arc::new(Session::new(id.clone(), owner, caller));
         {
-            let mut sessions = self.sessions();
+            let mut sessions = self.d.sessions();
             let per_uid = sessions.values().filter(|s| s.caller_uid == caller).count();
-            if sessions.len() >= self.config.max_sessions
-                || per_uid >= self.config.max_sessions_per_uid
+            if sessions.len() >= self.d.cfg.max_sessions
+                || per_uid >= self.d.cfg.max_sessions_per_uid
             {
                 return Err(Error::LimitExceeded("too many sessions".into()));
             }
             sessions.insert(id.clone(), session.clone());
         }
-        log::info!("session {id}: begin for user {user:?} service {service:?} caller uid {caller}");
+        log::info!(
+            "session {id}: begin for user {user:?} service {service:?} class {} \
+             (requires {}), caller uid {caller}",
+            effective.class,
+            effective.require
+        );
 
         let req = Request {
             user,
             uid: target_uid,
             service,
         };
-        let task = tokio::spawn(session::run(session.clone(), backends, req));
+        let task = tokio::spawn(session::run(session.clone(), effective, backends, req));
         session.set_task(task.abort_handle());
 
         // Hard lifetime: cancel and forget the session no matter what the
         // client does (it may have crashed or disconnected).
-        let sessions = self.sessions.clone();
-        let lifetime = Duration::from_secs(self.config.session_lifetime_s);
+        let d = self.d.clone();
+        let lifetime = Duration::from_secs(self.d.cfg.session_lifetime_s);
         let gc_id = id.clone();
         tokio::spawn(async move {
             tokio::time::sleep(lifetime).await;
-            let removed = sessions
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .remove(&gc_id);
+            let removed = d.sessions().remove(&gc_id);
             if let Some(s) = removed {
                 s.cancel();
             }
@@ -211,7 +179,7 @@ impl AuthService {
         let snap = session.wait(timeout).await;
         if snap.state.is_terminal() {
             // The result has been delivered; the session is done.
-            self.sessions().remove(&session_id);
+            self.d.sessions().remove(&session_id);
         }
         Ok((
             snap.events
@@ -224,6 +192,25 @@ impl AuthService {
         ))
     }
 
+    /// Answers a `prompt` event. An empty secret skips the method.
+    async fn submit_secret(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        session_id: String,
+        method: String,
+        secret: String,
+    ) -> Result<(), Error> {
+        let secret = Zeroizing::new(secret);
+        let session = self.owned_session(&hdr, &session_id)?;
+        if session.provide_secret(&method, secret) {
+            Ok(())
+        } else {
+            Err(Error::InvalidArgs(format!(
+                "no prompt pending for {method:?}"
+            )))
+        }
+    }
+
     /// Cancels a session.
     async fn cancel(
         &self,
@@ -232,21 +219,8 @@ impl AuthService {
     ) -> Result<(), Error> {
         let session = self.owned_session(&hdr, &session_id)?;
         session.cancel();
-        self.sessions().remove(&session_id);
+        self.d.sessions().remove(&session_id);
         log::info!("session {session_id}: cancelled by client");
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn caller_authorisation() {
-        assert!(may_authenticate(0, 1000));
-        assert!(may_authenticate(1000, 1000));
-        assert!(!may_authenticate(1000, 0));
-        assert!(!may_authenticate(1000, 1001));
     }
 }

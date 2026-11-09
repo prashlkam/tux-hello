@@ -1,0 +1,202 @@
+//! The `org.tuxhello.Manager1` D-Bus interface: enrolment and management.
+//!
+//! Authorisation (Phase 1):
+//! * reading and deleting your own enrolments: any user;
+//! * enrolling, or touching another user's data: root only. The CLI is run
+//!   with `sudo`, which verifies the password. Self-enrolment through polkit
+//!   (`org.tuxhello.enroll-self`, auth_self_keep) comes with the GUI.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use zbus::interface;
+use zbus::message::Header;
+use zeroize::Zeroizing;
+
+use crate::daemon::{caller_uid, may_act_on, Daemon, Error};
+use crate::pin;
+
+pub struct ManagerService {
+    d: Arc<Daemon>,
+}
+
+impl ManagerService {
+    pub fn new(d: Arc<Daemon>) -> Self {
+        ManagerService { d }
+    }
+}
+
+fn user_name(uid: u32) -> Result<String, Error> {
+    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
+        .ok()
+        .flatten()
+        .map(|u| u.name)
+        .ok_or_else(|| Error::InvalidArgs(format!("no user with uid {uid}")))
+}
+
+async fn require_self_or_root(
+    conn: &zbus::Connection,
+    hdr: &Header<'_>,
+    uid: u32,
+) -> Result<u32, Error> {
+    let caller = caller_uid(conn, hdr).await?;
+    if may_act_on(caller, uid) {
+        Ok(caller)
+    } else {
+        Err(Error::AccessDenied(
+            "only root may manage another user's enrolments".into(),
+        ))
+    }
+}
+
+async fn require_root(conn: &zbus::Connection, hdr: &Header<'_>) -> Result<u32, Error> {
+    let caller = caller_uid(conn, hdr).await?;
+    if caller == 0 {
+        Ok(caller)
+    } else {
+        Err(Error::AccessDenied(
+            "enrolment requires root for now; run the command with sudo".into(),
+        ))
+    }
+}
+
+/// Records whose id starts with `_` are internal (e.g. the PIN lockout
+/// counter) and not shown as enrolments.
+fn is_internal(id: &str) -> bool {
+    id.starts_with('_')
+}
+
+#[interface(name = "org.tuxhello.Manager1")]
+impl ManagerService {
+    /// Daemon information: version, store, policy directories.
+    async fn get_info(&self) -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("version".into(), env!("CARGO_PKG_VERSION").into());
+        m.insert("store".into(), self.d.store.root().display().to_string());
+        m.insert("store-key".into(), self.d.store.key_description().into());
+        m.insert(
+            "policy-dirs".into(),
+            self.d
+                .policy_dirs()
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(":"),
+        );
+        m
+    }
+
+    /// Lists a user's enrolments as (method, id).
+    async fn list_enrollments(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        uid: u32,
+    ) -> Result<Vec<(String, String)>, Error> {
+        require_self_or_root(conn, &hdr, uid).await?;
+        let list = self
+            .d
+            .store
+            .list(uid, None)
+            .map_err(|e| Error::Failed(e.to_string()))?;
+        Ok(list
+            .into_iter()
+            .filter(|r| !is_internal(&r.id))
+            .map(|r| (r.method, r.id))
+            .collect())
+    }
+
+    /// Sets or replaces a user's PIN.
+    async fn enroll_pin(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        uid: u32,
+        pin: String,
+    ) -> Result<(), Error> {
+        let pin = Zeroizing::new(pin);
+        let caller = require_root(conn, &hdr).await?;
+        let name = user_name(uid)?;
+        let backend = self.d.pin.clone();
+        tokio::task::spawn_blocking(move || backend.enroll(uid, &pin))
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))?
+            .map_err(Error::InvalidArgs)?;
+        log::info!("PIN enrolled for {name:?} (uid {uid}) by uid {caller}");
+        Ok(())
+    }
+
+    /// Deletes one enrolment. Returns whether it existed.
+    async fn delete_enrollment(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        uid: u32,
+        method: String,
+        id: String,
+    ) -> Result<bool, Error> {
+        let caller = require_self_or_root(conn, &hdr, uid).await?;
+        if is_internal(&id) {
+            return Err(Error::InvalidArgs(format!("invalid id {id:?}")));
+        }
+        let existed = if method == pin::METHOD {
+            self.d.pin.delete(uid).map_err(Error::Failed)?
+        } else {
+            self.d
+                .store
+                .delete(uid, &method, &id)
+                .map_err(|e| Error::InvalidArgs(e.to_string()))?
+        };
+        if existed {
+            log::info!("deleted {method}/{id} of uid {uid} (by uid {caller})");
+        }
+        Ok(existed)
+    }
+
+    /// Deletes everything stored for a user.
+    async fn delete_all(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        uid: u32,
+    ) -> Result<(), Error> {
+        let caller = require_self_or_root(conn, &hdr, uid).await?;
+        self.d
+            .store
+            .delete_user(uid)
+            .map_err(|e| Error::Failed(e.to_string()))?;
+        log::info!("deleted all enrolments of uid {uid} (by uid {caller})");
+        Ok(())
+    }
+
+    /// Describes the policy that applies to `uid` for a PAM service.
+    async fn explain_policy(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        uid: u32,
+        service: String,
+    ) -> Result<HashMap<String, String>, Error> {
+        require_self_or_root(conn, &hdr, uid).await?;
+        let user = nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::InvalidArgs(format!("no user with uid {uid}")))?;
+        let e = self.d.effective(&service, &user.name, user.gid.as_raw());
+        let mut m = HashMap::new();
+        m.insert("class".into(), e.class.clone());
+        m.insert("require".into(), e.require.to_string());
+        m.insert("min-assurance".into(), e.min_assurance.to_string());
+        m.insert("timeout-s".into(), e.timeout.as_secs().to_string());
+        let usable: Vec<String> = self
+            .d
+            .backends
+            .iter()
+            .filter(|b| e.require.methods().contains(b.name()))
+            .filter(|b| b.available() && b.is_enrolled(&user.name, uid))
+            .map(|b| format!("{}:{}", b.name(), b.assurance()))
+            .collect();
+        m.insert("usable".into(), usable.join(","));
+        Ok(m)
+    }
+}

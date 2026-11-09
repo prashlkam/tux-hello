@@ -4,8 +4,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tuxhello_proto::assurance;
-
 use crate::backend::{Backend, BoxFuture, Outcome, Progress, Request};
 use crate::config::{StubConfig, StubOutcome};
 
@@ -13,6 +11,7 @@ pub struct Stub {
     outcome: StubOutcome,
     delay: Duration,
     users: Vec<String>,
+    assurance: u32,
 }
 
 impl Stub {
@@ -21,6 +20,7 @@ impl Stub {
             outcome: cfg.outcome,
             delay: Duration::from_millis(cfg.delay_ms),
             users: cfg.users.clone(),
+            assurance: cfg.assurance,
         }
     }
 }
@@ -31,14 +31,14 @@ impl Backend for Stub {
     }
 
     fn assurance(&self) -> u32 {
-        assurance::LOW
+        self.assurance
     }
 
     fn available(&self) -> bool {
         true
     }
 
-    fn is_enrolled(&self, user: &str) -> bool {
+    fn is_enrolled(&self, user: &str, _uid: u32) -> bool {
         self.users.is_empty() || self.users.iter().any(|u| u == user)
     }
 
@@ -67,6 +67,7 @@ impl Backend for Stub {
 mod tests {
     use super::*;
     use crate::session::{run, Session};
+    use tuxhello_policy::{Effective, Requirement};
     use tuxhello_proto::SessionState;
 
     fn cfg(outcome: StubOutcome, users: &[&str]) -> StubConfig {
@@ -75,28 +76,35 @@ mod tests {
             outcome,
             delay_ms: 1,
             users: users.iter().map(|s| s.to_string()).collect(),
+            assurance: 2,
         }
     }
 
     async fn run_with(outcome: StubOutcome) -> SessionState {
-        let session = Arc::new(Session::new("t".into(), ":1.1".into(), 0, "alice".into()));
+        let session = Arc::new(Session::new("t".into(), ":1.1".into(), 0));
         let backends: Vec<Arc<dyn Backend>> = vec![Arc::new(Stub::new(&cfg(outcome, &[])))];
+        let effective = Effective {
+            class: "other".into(),
+            require: Requirement::Method("stub".into()),
+            min_assurance: 2,
+            timeout: Duration::from_secs(5),
+        };
         let req = Request {
             user: "alice".into(),
             uid: 1000,
             service: "test".into(),
         };
-        run(session.clone(), backends, req).await;
+        run(session.clone(), effective, backends, req).await;
         session.state()
     }
 
     #[test]
     fn enrollment_list() {
         let s = Stub::new(&cfg(StubOutcome::Success, &["alice"]));
-        assert!(s.is_enrolled("alice"));
-        assert!(!s.is_enrolled("bob"));
+        assert!(s.is_enrolled("alice", 1));
+        assert!(!s.is_enrolled("bob", 2));
         let all = Stub::new(&cfg(StubOutcome::Success, &[]));
-        assert!(all.is_enrolled("bob"));
+        assert!(all.is_enrolled("bob", 2));
     }
 
     #[tokio::test]

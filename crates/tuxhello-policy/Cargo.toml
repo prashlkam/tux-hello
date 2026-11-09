@@ -1,0 +1,11 @@
+[package]
+name = "tuxhello-policy"
+description = "Policy parsing and evaluation for Tux Hello"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
