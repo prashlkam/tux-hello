@@ -174,10 +174,10 @@ start_daemon "$(stub_config success 200 '["somebody-else"]')"
 expect fail 5 "user not enrolled" pt tuxhello-test "$USER_A"
 expect ok 5 "not enrolled falls through" pt tuxhello-test-fallthrough "$USER_A"
 
-echo "== timeout (backend slower than module timeout=5)"
+echo "== timeout (backend slower than the policy timeout, 10 s for this class)"
 start_daemon "$(stub_config success 30000 '[]')"
-expect fail 8 "module gives up after its timeout" pt tuxhello-test "$USER_A"
-expect ok 8 "timeout falls through" pt tuxhello-test-fallthrough "$USER_A"
+expect fail 13 "daemon gives up after the policy timeout" pt tuxhello-test "$USER_A"
+expect ok 13 "timeout falls through" pt tuxhello-test-fallthrough "$USER_A"
 
 echo "== daemon killed mid-session"
 start_daemon "$(stub_config success 30000 '[]')"
@@ -244,6 +244,90 @@ echo "== delete"
 expect ok 5 "user deletes own PIN" runuser -u "$USER_A" -- "$CLI" delete pin
 INPUT=1357 expect fail 5 "deleted PIN no longer works" pt tuxhello-test "$USER_A"
 expect ok 5 "...and falls through" pt tuxhello-test-fallthrough "$USER_A"
+
+echo "== security key (software authenticator)"
+SK="$WORK/softkey"
+mkdir -p "$SK"
+touch "$SK/present"
+key_config() { # $1 = extra TOML
+	base_config
+	printf '[stub]\nsoft_key_dir = "%s"\n%s\n' "$SK" "${1:-}"
+}
+start_daemon "$(key_config)"
+expect ok 5 "status lists the key method" "$CLI" status
+out_contains "key .*available" "key method is available"
+expect fail 5 "unprivileged user cannot enroll a key" runuser -u "$USER_A" -- "$CLI" enroll key --no-pin
+expect ok 10 "root enrolls a key for $USER_A" "$CLI" enroll key --user "$USER_A" --label "My YubiKey" --no-pin
+out_contains "my-yubikey" "label becomes the enrolment id"
+expect fail 10 "the same label cannot be enrolled twice" "$CLI" enroll key --user "$USER_A" --label "my yubikey" --no-pin
+expect ok 5 "list shows the key" runuser -u "$USER_A" -- "$CLI" list
+out_contains "key .*my-yubikey" "key listed"
+grep -rq '"pam://tuxhello"' "$WORK/store" &&
+	{ echo "FAIL  key record stored in plain text"; FAILURES=$((FAILURES + 1)); } ||
+	echo "PASS  key record is encrypted"
+
+expect ok 10 "key authenticates (root caller)" pt tuxhello-test "$USER_A"
+out_contains "Touch your security key" "touch prompt reached the PAM conversation"
+expect ok 10 "key authenticates (user as itself)" runuser -u "$USER_A" -- "$PAMTEST" tuxhello-test "$USER_A"
+
+rm "$SK/present"
+expect fail 3 "unplugged key: fails fast" pt tuxhello-test "$USER_A"
+expect ok 3 "unplugged key: falls through" pt tuxhello-test-fallthrough "$USER_A"
+touch "$SK/present"
+
+mv "$SK/creds" "$SK/creds.real"
+expect fail 10 "a different key (no enrolled credential) is rejected" pt tuxhello-test "$USER_A"
+out_contains "not recognised" "foreign key reported"
+mv "$SK/creds.real" "$SK/creds"
+
+CRED=$(ls "$SK/creds" | head -1)
+sed -i 's/ [0-9]*$/ 0/' "$SK/creds/$CRED"
+expect fail 10 "cloned key (counter went backwards) is rejected" pt tuxhello-test "$USER_A"
+grep -q "possible cloned key" "$WORK/daemon.log" &&
+	echo "PASS  clone suspicion logged" ||
+	{ echo "FAIL  clone suspicion not logged"; FAILURES=$((FAILURES + 1)); }
+sed -i 's/ [0-9]*$/ 100/' "$SK/creds/$CRED"
+expect ok 10 "key works again once its counter is ahead" pt tuxhello-test "$USER_A"
+
+touch "$SK/no-touch"
+rm -f "$SK/was-cancelled"
+expect fail 13 "nobody touches the key: policy timeout" pt tuxhello-test "$USER_A"
+sleep 0.5
+[ -e "$SK/was-cancelled" ] &&
+	echo "PASS  the waiting key operation was cancelled" ||
+	{ echo "FAIL  key operation not cancelled"; FAILURES=$((FAILURES + 1)); }
+rm "$SK/no-touch"
+
+echo "== two factors: key AND PIN"
+INPUT=$'8642\n8642' expect ok 10 "root enrolls a PIN again" "$CLI" enroll pin --user "$USER_A"
+printf '[class.other]\nrequire = { all = ["key", "pin"] }\n' >"$WORK/policy.d/50-2fa.toml"
+kill -HUP "$DAEMON_PID"
+sleep 0.5
+INPUT=8642 expect ok 10 "key + correct PIN succeeds" pt tuxhello-test "$USER_A"
+grep -q "authenticated by key+pin" "$WORK/daemon.log" &&
+	echo "PASS  both factors credited" ||
+	{ echo "FAIL  both factors not credited"; FAILURES=$((FAILURES + 1)); }
+INPUT=$'1\n2\n3' expect fail 15 "key + wrong PIN fails" pt tuxhello-test "$USER_A"
+rm "$SK/present"
+INPUT=8642 expect fail 5 "PIN alone is not enough (key unplugged)" pt tuxhello-test "$USER_A"
+touch "$SK/present"
+rm "$WORK/policy.d/50-2fa.toml"
+
+echo "== key with user verification (key PIN)"
+echo 4321 >"$SK/pin"
+start_daemon "$(key_config $'[key]\nrequire_uv = true')"
+INPUT=4321 expect ok 10 "enroll a UV key with its PIN" "$CLI" enroll key --user "$USER_A" --label uv
+INPUT=4321 expect ok 10 "key PIN + touch authenticates" pt tuxhello-test "$USER_A"
+out_contains "Security key PIN" "key PIN prompt shown"
+INPUT=1111 expect fail 10 "wrong key PIN fails" pt tuxhello-test "$USER_A"
+out_contains "Wrong security key PIN" "wrong key PIN reported"
+rm "$SK/pin"
+
+echo "== delete keys"
+expect ok 5 "user deletes a key" runuser -u "$USER_A" -- "$CLI" delete key my-yubikey
+expect ok 5 "user deletes everything" runuser -u "$USER_A" -- "$CLI" delete --all
+expect ok 5 "list after delete" runuser -u "$USER_A" -- "$CLI" list
+out_contains "no enrolments" "nothing left"
 
 echo
 if [ $FAILURES -eq 0 ]; then

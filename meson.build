@@ -19,8 +19,9 @@ if pam_moduledir == ''
   pam_moduledir = prefix / get_option('libdir') / 'security'
 endif
 
-# libdbus and libpam are needed at link time by the Rust crates.
+# libdbus, libpam and libfido2 are needed at link time by the Rust crates.
 dependency('dbus-1')
+dependency('libfido2', version: '>= 1.13')
 # libpam headers are checked by the C toolchain at link time; not every distro ships pam.pc.
 
 profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'
@@ -80,6 +81,11 @@ if systemd.found()
     install_dir: systemd.get_variable(pkgconfig: 'tmpfilesdir',
                                       pkgconfig_define: ['prefix', prefix]))
 endif
+
+# udev: security-key access for the daemon's group
+udev = dependency('udev', required: false)
+udevdir = udev.found() ? udev.get_variable(pkgconfig: 'udevdir', pkgconfig_define: ['prefix', prefix]) : prefix / 'lib' / 'udev'
+install_data('data/udev/70-tuxhello-fido.rules', install_dir: udevdir / 'rules.d')
 
 # OpenRC
 if get_option('openrc')

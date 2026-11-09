@@ -73,6 +73,17 @@ enum EnrollMethod {
         #[arg(long)]
         user: Option<String>,
     },
+    /// Register a FIDO2/U2F security key (enrol a backup key too).
+    Key {
+        /// Name for this key, e.g. "yubikey" or "backup" (default: key-N).
+        #[arg(long)]
+        label: Option<String>,
+        /// Don't ask for the key's own PIN (the key has none).
+        #[arg(long)]
+        no_pin: bool,
+        #[arg(long)]
+        user: Option<String>,
+    },
 }
 
 type Res = Result<ExitCode, String>;
@@ -200,6 +211,26 @@ fn enroll_pin(client: &Client, user: Option<String>) -> Res {
     Ok(ExitCode::SUCCESS)
 }
 
+fn enroll_key(client: &Client, label: Option<String>, no_pin: bool, user: Option<String>) -> Res {
+    let (name, uid) = target_user(user)?;
+    if !nix::unistd::getuid().is_root() {
+        return Err("enrolling requires root for now: run `sudo tuxhello enroll key`".into());
+    }
+    let key_pin = if no_pin {
+        Zeroizing::new(String::new())
+    } else {
+        read_secret("Security key PIN (leave empty if your key has none): ")
+            .map_err(|e| e.to_string())?
+    };
+    println!("Touch your security key now…");
+    let id = client
+        .enroll_key(uid, label.as_deref().unwrap_or(""), &key_pin)
+        .map_err(|e| e.to_string())?;
+    println!("Security key enrolled for {name} as {id:?}.");
+    println!("Tip: enrol a second (backup) key with `sudo tuxhello enroll key --label backup`.");
+    Ok(ExitCode::SUCCESS)
+}
+
 fn list(client: &Client, user: Option<String>) -> Res {
     let (name, uid) = target_user(user)?;
     let v = client.list_enrollments(uid).map_err(|e| e.to_string())?;
@@ -279,6 +310,14 @@ fn main() -> ExitCode {
             Command::Enroll {
                 method: EnrollMethod::Pin { user },
             } => enroll_pin(&client, user),
+            Command::Enroll {
+                method:
+                    EnrollMethod::Key {
+                        label,
+                        no_pin,
+                        user,
+                    },
+            } => enroll_key(&client, label, no_pin, user),
             Command::List { user } => list(&client, user),
             Command::Delete {
                 method,

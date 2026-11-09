@@ -77,6 +77,7 @@ mod tests {
             delay_ms: 1,
             users: users.iter().map(|s| s.to_string()).collect(),
             assurance: 2,
+            soft_key_dir: None,
         }
     }
 

@@ -165,6 +165,7 @@ out_contains "stub" "CLI lists the stub backend"
 expect ok 3 "CLI test" "$CLI" test
 expect fail 3 "non-root PIN enrolment is refused" sh -c "printf '2468\n2468\n' | '$CLI' enroll pin"
 out_contains "sudo" "refusal explains how to enrol"
+expect fail 3 "non-root key enrolment is refused" "$CLI" enroll key --no-pin
 expect ok 3 "CLI list (own enrolments)" "$CLI" list
 expect fail 3 "CLI list of another user is refused" "$CLI" list --user root
 expect ok 3 "CLI policy" "$CLI" policy sudo
@@ -185,10 +186,10 @@ start_daemon success 200 '["somebody-else"]'
 expect fail 3 "user not enrolled" pt tuxhello-test "$ME"
 expect ok 3 "not enrolled falls through" pt tuxhello-test-fallthrough "$ME"
 
-echo "== timeout (backend slower than module timeout=5)"
+echo "== timeout (backend slower than the policy timeout, 10 s for this class)"
 start_daemon success 30000 '[]'
-expect fail 7 "module gives up after its timeout" pt tuxhello-test "$ME"
-expect ok 7 "timeout falls through" pt tuxhello-test-fallthrough "$ME"
+expect fail 13 "daemon gives up after the policy timeout" pt tuxhello-test "$ME"
+expect ok 13 "timeout falls through" pt tuxhello-test-fallthrough "$ME"
 
 echo "== daemon killed mid-session"
 start_daemon success 30000 '[]'

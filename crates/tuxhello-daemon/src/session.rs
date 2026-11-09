@@ -280,8 +280,12 @@ pub async fn run(
         out: HashSet::new(),
         any_no_match: false,
     };
-    let (interactive, automatic): (Vec<_>, Vec<_>) =
+    let (mut interactive, automatic): (Vec<_>, Vec<_>) =
         backends.into_iter().partition(|b| b.interactive());
+    // Ask for the strongest interactive method first (e.g. a security key's
+    // own PIN before the account PIN), so an answer meant for one prompt is
+    // not typed into another. An empty answer skips to the next one.
+    interactive.sort_by_key(|b| std::cmp::Reverse(b.assurance()));
 
     let done = |t: &Tally<'_>| -> bool {
         if let Some(a) = t.satisfied() {
@@ -618,6 +622,17 @@ mod tests {
             !pin_ran.load(std::sync::atomic::Ordering::SeqCst),
             "no point asking"
         );
+    }
+
+    #[tokio::test]
+    async fn strongest_interactive_method_is_asked_first() {
+        let (pin, pin_ran) = fake("pin", 2, true, M(2), 0);
+        let (key, _) = fake("key", 4, true, M(4), 0);
+        // `pin` is listed first, but the key is stronger, so it runs first
+        // and its success means the PIN is never asked for.
+        let r = go(eff(r#"{ any = ["pin", "key"] }"#, 2, 1000), vec![pin, key]).await;
+        assert_eq!(r, (SessionState::Success, "key".into(), 4));
+        assert!(!pin_ran.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     #[tokio::test]

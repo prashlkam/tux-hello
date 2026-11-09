@@ -13,12 +13,13 @@ StateDirectory=tuxhello
 StateDirectoryMode=0700
 UMask=0077
 
-# Hardening. Phase 0 needs no devices at all; real backends will replace
-# PrivateDevices= with an explicit DeviceAllow= list (PLAN.md §4.2).
+# Hardening. Device access is an explicit allow-list (PLAN.md §4.2):
+# hidraw for FIDO security keys (group access via 70-tuxhello-fido.rules).
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
-PrivateDevices=yes
+DevicePolicy=closed
+DeviceAllow=char-hidraw rw
 PrivateNetwork=yes
 PrivateTmp=yes
 ProtectSystem=strict
@@ -30,7 +31,8 @@ ProtectKernelLogs=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectProc=invisible
-RestrictAddressFamilies=AF_UNIX
+# AF_NETLINK: libudev (used by libfido2 to enumerate keys).
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

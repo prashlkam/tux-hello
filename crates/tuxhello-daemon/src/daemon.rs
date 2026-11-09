@@ -13,6 +13,7 @@ use zbus::DBusError;
 
 use crate::backend::Backend;
 use crate::config::DaemonConfig;
+use crate::key::KeyBackend;
 use crate::pin::PinBackend;
 use crate::session::Session;
 
@@ -38,6 +39,7 @@ pub struct Daemon {
     policy: RwLock<Arc<Policy>>,
     pub backends: Vec<Arc<dyn Backend>>,
     pub pin: Arc<PinBackend>,
+    pub key: Option<Arc<KeyBackend>>,
     pub store: Arc<Store>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
 }
@@ -48,6 +50,7 @@ impl Daemon {
         policy_dirs: Vec<PathBuf>,
         backends: Vec<Arc<dyn Backend>>,
         pin: Arc<PinBackend>,
+        key: Option<Arc<KeyBackend>>,
         store: Arc<Store>,
     ) -> Result<Self, PolicyError> {
         let policy = Arc::new(load_policy(&policy_dirs)?);
@@ -57,6 +60,7 @@ impl Daemon {
             policy: RwLock::new(policy),
             backends,
             pin,
+            key,
             store,
             sessions: Mutex::new(HashMap::new()),
         })

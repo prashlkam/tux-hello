@@ -126,6 +126,36 @@ impl ManagerService {
         Ok(())
     }
 
+    /// Registers a security key: blocks until the key is touched. `label`
+    /// may be empty (an id like "key-1" is chosen); `key_pin` is the key's own
+    /// PIN if it has one, else empty. Returns the enrolment id.
+    async fn enroll_key(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        uid: u32,
+        label: String,
+        key_pin: String,
+    ) -> Result<String, Error> {
+        let key_pin = Zeroizing::new(key_pin);
+        let caller = require_root(conn, &hdr).await?;
+        let name = user_name(uid)?;
+        let backend = self.d.key.clone().ok_or_else(|| {
+            Error::Unavailable("security keys are not supported by this build".into())
+        })?;
+        let name2 = name.clone();
+        let id = tokio::task::spawn_blocking(move || {
+            let label = (!label.trim().is_empty()).then_some(label);
+            let pin = (!key_pin.is_empty()).then(|| key_pin.as_str().to_string());
+            backend.enroll(uid, &name2, label.as_deref(), pin.as_deref())
+        })
+        .await
+        .map_err(|e| Error::Failed(e.to_string()))?
+        .map_err(Error::Failed)?;
+        log::info!("security key {id:?} enrolled for {name:?} (uid {uid}) by uid {caller}");
+        Ok(id)
+    }
+
     /// Deletes one enrolment. Returns whether it existed.
     async fn delete_enrollment(
         &self,

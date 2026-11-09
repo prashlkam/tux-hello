@@ -1,5 +1,5 @@
 #%PAM-1.0
 # Integration-test service: succeeds ONLY if pam_tuxhello succeeds.
-auth     sufficient  pam_tuxhello.so debug timeout=5
+auth     sufficient  pam_tuxhello.so debug timeout=20
 auth     required    pam_deny.so
 account  required    pam_permit.so

@@ -1,0 +1,8 @@
+# Let tuxhellod (running as the "tuxhello" user/group) open FIDO security
+# keys. systemd's 60-fido-id.rules sets ID_FIDO_TOKEN=1 on every hidraw node
+# that speaks the FIDO protocol, whatever the vendor. The logged-in user keeps
+# access through the uaccess ACL set by those same rules.
+#
+# Systems with eudev/mdev (no fido_id builtin) need a vendor-ID based rule
+# instead, e.g. the 70-u2f.rules shipped with libfido2, plus GROUP="tuxhello".
+ACTION=="add|change", SUBSYSTEM=="hidraw", ENV{ID_FIDO_TOKEN}=="1", GROUP="tuxhello", MODE="0660"

@@ -4,6 +4,7 @@ mod auth;
 mod backend;
 mod config;
 mod daemon;
+mod key;
 mod manager;
 mod pin;
 mod session;
@@ -22,6 +23,7 @@ use tuxhello_store::{FileKey, Store};
 use crate::backend::Backend;
 use crate::config::Config;
 use crate::daemon::Daemon;
+use crate::key::{Authenticator, KeyBackend};
 use crate::pin::PinBackend;
 
 #[derive(Parser)]
@@ -55,6 +57,33 @@ fn add_stub(cfg: &Config, _backends: &mut Vec<Arc<dyn Backend>>) {
     }
 }
 
+#[cfg(feature = "stub-backend")]
+fn soft_key(cfg: &Config) -> Option<Arc<dyn Authenticator>> {
+    cfg.stub.soft_key_dir.as_ref().map(|d| {
+        log::warn!(
+            "SOFTWARE SECURITY KEY in {} (testing only; real keys are ignored)",
+            d.display()
+        );
+        Arc::new(key::soft::SoftAuthenticator::in_dir(d)) as Arc<dyn Authenticator>
+    })
+}
+
+#[cfg(not(feature = "stub-backend"))]
+fn soft_key(_cfg: &Config) -> Option<Arc<dyn Authenticator>> {
+    None
+}
+
+#[cfg(feature = "fido2")]
+fn real_keys() -> Option<Arc<dyn Authenticator>> {
+    Some(Arc::new(key::fido2::LibFido2::new()))
+}
+
+#[cfg(not(feature = "fido2"))]
+fn real_keys() -> Option<Arc<dyn Authenticator>> {
+    log::info!("built without libfido2: security keys are not supported");
+    None
+}
+
 async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = Config::load(&args.config)?;
     let store = Arc::new(Store::open(&cfg.store.path, &FileKey)?);
@@ -66,6 +95,12 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let pin = Arc::new(PinBackend::new(store.clone(), cfg.pin.clone()));
     let mut backends: Vec<Arc<dyn Backend>> = vec![pin.clone()];
+    let key = soft_key(&cfg)
+        .or_else(real_keys)
+        .map(|auth| Arc::new(KeyBackend::new(store.clone(), cfg.key.clone(), auth)));
+    if let Some(k) = &key {
+        backends.push(k.clone());
+    }
     add_stub(&cfg, &mut backends);
 
     let daemon = Arc::new(Daemon::new(
@@ -73,6 +108,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         cfg.policy.dirs,
         backends,
         pin,
+        key,
         store,
     )?);
 

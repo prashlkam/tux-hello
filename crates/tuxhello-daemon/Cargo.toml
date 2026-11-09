@@ -11,18 +11,24 @@ name = "tuxhellod"
 path = "src/main.rs"
 
 [features]
-default = []
-# Test-only backend whose outcome is set in the config file. Never enable it in
-# distribution packages: with `outcome = "success"` it authenticates anyone.
+default = ["fido2"]
+# Real FIDO2/U2F security keys through libfido2.
+fido2 = []
+# Test-only backends: the stub (outcome set in the config file) and a software
+# FIDO2 authenticator. Never enable this in distribution packages: with
+# `outcome = "success"` the stub authenticates anyone.
 stub-backend = []
 
 [dependencies]
 argon2 = "0.5"
 clap.workspace = true
+ed25519-dalek = "2"
 env_logger.workspace = true
 log.workspace = true
 nix.workspace = true
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
 serde.workspace = true
+sha2 = "0.10"
 tokio.workspace = true
 toml.workspace = true
 tuxhello-policy.workspace = true

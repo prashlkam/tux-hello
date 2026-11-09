@@ -40,3 +40,18 @@ codegen-units = 1
 # Keep unwinding: the PAM module catches panics so that a bug can never crash
 # the host process (sudo, the greeter, the screen locker).
 panic = "unwind"
+
+# Crypto is unbearably slow unoptimised (Argon2 with 64 MiB takes seconds),
+# which makes debug builds and timing-based tests flaky. Optimise just these.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.p256]
+opt-level = 3
+[profile.dev.package.ed25519-dalek]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.aes-gcm]
+opt-level = 3

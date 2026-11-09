@@ -22,7 +22,9 @@ SubmitSecret(s session_id, s method, s secret)   # empty = skip this method
 A PAM prompt blocks the conversation: while the user types, the application can't show "fingerprint recognised". So the daemon runs:
 
 1. **All automatic methods in parallel** (face, fingerprint, key), bounded by the policy `timeout_s`.
-2. **Then interactive methods one at a time** (PIN), only if the policy is still unsatisfied **and** still satisfiable.
+2. **Then interactive methods one at a time** (PIN, or a security key's own PIN), only if the policy is still unsatisfied **and** still satisfiable.
+   - They are asked **strongest first**, so a key-PIN prompt (assurance 4) comes before the account PIN (2).
+   - This order stops a secret meant for one prompt from being typed into another, where it would count as a wrong account PIN and move it towards lockout. The integration suite caught this case.
 
 After every result the daemon checks the requirement tree:
 

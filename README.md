@@ -2,16 +2,19 @@
 
 Windows Hello–style sign-in for Linux, with a PIN, face, fingerprint, voice or FIDO2 security key, on any desktop environment and distribution. The design is in [PLAN.md](PLAN.md).
 
-> **Status: Phase 1 in progress.** The PAM module, daemon, policy engine, encrypted store and a **software PIN** work end to end and are tested on Arch, Debian and Fedora. FIDO2 keys, fingerprints, the TPM-backed PIN and the safe PAM setup tool are next. Not ready for daily use yet.
+> **Status: Phase 1 in progress.** The PAM module, daemon, policy engine, encrypted store, a **software PIN** and **FIDO2 security keys** work end to end and are tested on Arch, Debian and Fedora. Fingerprints, the TPM-backed PIN and the safe PAM setup tool are next. Not ready for daily use yet.
 
 ## Using the CLI
 
 ```sh
 sudo tuxhello enroll pin          # set your PIN (sudo verifies your password)
+sudo tuxhello enroll key --label yubikey   # register a FIDO2/U2F key (touch it)
+sudo tuxhello enroll key --label backup    # ...and a backup key
 tuxhello list                     # what you have enrolled
 tuxhello policy sudo              # what a PAM service will accept from you
 tuxhello test --service sudo      # try a real authentication, without PAM
 tuxhello delete pin               # remove your PIN
+tuxhello delete key backup        # remove one key
 tuxhello status                   # daemon, store and methods
 ```
 
@@ -39,11 +42,11 @@ You need Rust ≥ 1.85, plus the libdbus and libpam development files and `pkg-c
 
 ```sh
 # Arch
-sudo pacman -S --needed rust pkgconf dbus pam
+sudo pacman -S --needed rust pkgconf dbus pam libfido2
 # Debian/Ubuntu
-sudo apt install cargo rustc pkg-config libdbus-1-dev libpam0g-dev
+sudo apt install cargo rustc pkg-config libdbus-1-dev libpam0g-dev libfido2-dev
 # Fedora
-sudo dnf install cargo rust pkgconf-pkg-config dbus-devel pam-devel
+sudo dnf install cargo rust pkgconf-pkg-config dbus-devel pam-devel libfido2-devel
 
 cargo build --workspace
 cargo test --workspace --all-features

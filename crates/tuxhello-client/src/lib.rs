@@ -338,6 +338,16 @@ impl Client {
             .map_err(map_err)
     }
 
+    /// Registers a security key; blocks until the key is touched (up to a
+    /// minute). Empty `label` picks an id; empty `key_pin` means none.
+    pub fn enroll_key(&self, uid: u32, label: &str, key_pin: &str) -> Result<String, ClientError> {
+        let (id,): (String,) = self
+            .manager(Duration::from_secs(60))
+            .method_call(MANAGER_INTERFACE, "EnrollKey", (uid, label, key_pin))
+            .map_err(map_err)?;
+        Ok(id)
+    }
+
     /// Deletes one enrolment. Returns whether it existed.
     pub fn delete_enrollment(&self, uid: u32, method: &str, id: &str) -> Result<bool, ClientError> {
         let (b,): (bool,) = self

@@ -680,7 +680,7 @@ Estimates assume 2–3 core developers. They are indicative and not commitments.
 - [x] `tuxhellod` with sessions and policy engine v1 (`tuxhello-policy`: classes/services/groups/users, any/all, assurance, SIGHUP reload). Concurrent-session limits exist. *Still to do:* per-user attempt rate limiting across methods, and a structured audit log (today there are only log lines).
 - [x] Encrypted store (`tuxhello-store`: AES-256-GCM, file master key). *Still to do:* TPM sealing (`swtpm` in CI).
 - [x] Software PIN: Argon2id, persistent lockout, `prompt`/`SubmitSecret` protocol ([ADR 0007](docs/adr/0007-pin-prompts-and-management.md)). *Still to do:* TPM-backed PIN.
-- [ ] FIDO2 backend (enroll/verify, multiple keys, `pam_u2f` import).
+- [x] FIDO2 backend: libfido2 FFI, our own assertion verification (RP hash, UP/UV, signature, clone-detecting counter), multiple keys, optional UV with the key PIN, and cancellation of untouched keys ([ADR 0008](docs/adr/0008-security-key-backend.md)). Tested in containers with a software authenticator. *Still to do:* `pam_u2f` import, and a test with a physical key.
 - [ ] fprintd adapter backend.
 - [x] CLI `status`, `enroll pin`, `list`, `delete`, `policy`, `test`, backed by `org.tuxhello.Manager1`. *Still to do:* `doctor`.
 - [ ] `tuxhello-pam-setup` with backup/dry-run/rollback for Arch, Debian (`pam-auth-update`), and Fedora (`authselect`).

@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev libfido2-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev libfido2-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace --all-features
 
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev libfido2-dev pkg-config
       - uses: dtolnay/rust-toolchain@1.85
       - run: cargo check --workspace --all-features
 
@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config meson ninja-build systemd-dev
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev libfido2-dev pkg-config meson ninja-build systemd-dev
       - uses: dtolnay/rust-toolchain@stable
       - run: meson setup build --prefix=/usr --buildtype=release
       - run: meson compile -C build
@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config dbus-daemon dbus-bin
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev libfido2-dev pkg-config dbus-daemon dbus-bin
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --workspace --features tuxhello-daemon/stub-backend
       - run: tests/integration/run-unprivileged.sh
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev pkg-config
+      - run: sudo apt-get update && sudo apt-get install -y libpam0g-dev libdbus-1-dev libfido2-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --workspace --features tuxhello-daemon/stub-backend
       - run: >
@@ -88,11 +88,11 @@ jobs:
       matrix:
         include:
           - image: archlinux:latest
-            deps: pacman -Syu --noconfirm --needed rust gcc pkgconf pam dbus util-linux shadow
+            deps: pacman -Syu --noconfirm --needed rust gcc pkgconf pam dbus libfido2 util-linux shadow
           - image: debian:trixie
-            deps: apt-get update && apt-get install -y cargo rustc gcc pkg-config libpam0g-dev libdbus-1-dev dbus dbus-bin util-linux passwd
+            deps: apt-get update && apt-get install -y cargo rustc gcc pkg-config libpam0g-dev libdbus-1-dev libfido2-dev dbus dbus-bin util-linux passwd
           - image: fedora:latest
-            deps: dnf install -y cargo rust gcc pkgconf-pkg-config pam-devel dbus-devel dbus-daemon dbus-tools util-linux shadow-utils
+            deps: dnf install -y cargo rust gcc pkgconf-pkg-config pam-devel dbus-devel libfido2-devel dbus-daemon dbus-tools util-linux shadow-utils
     container:
       image: ${{ matrix.image }}
     steps:

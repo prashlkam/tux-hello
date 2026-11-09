@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::key::KeyConfig;
 use crate::pin::PinConfig;
 
 pub const DEFAULT_PATH: &str = "/etc/tuxhello/config.toml";
@@ -19,6 +20,8 @@ pub struct Config {
     pub policy: PolicyConfig,
     #[serde(default)]
     pub pin: PinConfig,
+    #[serde(default)]
+    pub key: KeyConfig,
     #[serde(default)]
     pub stub: StubConfig,
 }
@@ -120,6 +123,10 @@ pub struct StubConfig {
     /// Assurance reported on success.
     #[serde(default = "default_stub_assurance")]
     pub assurance: u32,
+    /// Use a software FIDO2 authenticator kept in this directory instead of
+    /// real security keys (see `key/soft.rs`). Independent of `enabled`.
+    #[serde(default)]
+    pub soft_key_dir: Option<PathBuf>,
 }
 
 fn default_stub_delay() -> u64 {
@@ -137,6 +144,7 @@ impl Default for StubConfig {
             delay_ms: default_stub_delay(),
             users: Vec::new(),
             assurance: default_stub_assurance(),
+            soft_key_dir: None,
         }
     }
 }
@@ -180,6 +188,8 @@ mod tests {
         assert_eq!(c.store.path, PathBuf::from("/var/lib/tuxhello"));
         assert_eq!(c.policy.dirs.len(), 2);
         assert_eq!(c.pin.min_length, 4);
+        assert_eq!(c.key.rp_id, "pam://tuxhello");
+        assert!(!c.key.require_uv);
     }
 
     #[test]
@@ -193,6 +203,9 @@ mod tests {
             [pin]
             min_length = 6
             allow_alnum = false
+            [key]
+            rp_id = "pam://host"
+            require_uv = true
             [stub]
             enabled = true
             outcome = "success"
@@ -208,6 +221,8 @@ mod tests {
         assert_eq!(c.policy.dirs, vec![PathBuf::from("/a")]);
         assert_eq!(c.pin.min_length, 6);
         assert!(!c.pin.allow_alnum);
+        assert_eq!(c.key.rp_id, "pam://host");
+        assert!(c.key.require_uv);
     }
 
     #[test]
