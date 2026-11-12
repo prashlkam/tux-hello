@@ -56,6 +56,12 @@ enum Command {
         #[arg(long)]
         user: Option<String>,
     },
+    /// Clear a user's lockouts: too many failed attempts, biometrics switched
+    /// off, PIN backoff (requires sudo).
+    Unlock {
+        #[arg(long)]
+        user: Option<String>,
+    },
     /// Show the policy that applies to a PAM service.
     Policy {
         /// PAM service, e.g. sudo, gdm-password, swaylock.
@@ -298,6 +304,36 @@ fn list(client: &Client, user: Option<String>) -> Res {
             println!("  {method:<12} {id}");
         }
     }
+    // Older daemons don't have GetLockout; the list is still worth showing.
+    if let Ok(l) = client.lockout(uid) {
+        let get = |k: &str| l.get(k).copied().unwrap_or(0);
+        if get("biometrics-locked") != 0 {
+            println!(
+                "Biometrics are switched off after {} failed attempts; a PIN or security-key \
+                 login, or `sudo tuxhello unlock`, switches them back on.",
+                get("biometric-failures")
+            );
+        }
+        if get("pin-locked-s") != 0 {
+            println!("The PIN is locked for another {} s.", get("pin-locked-s"));
+        }
+        if get("throttled-s") != 0 {
+            println!(
+                "Too many failed attempts: Tux Hello is paused for another {} s (the password still works).",
+                get("throttled-s")
+            );
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn unlock(client: &Client, user: Option<String>) -> Res {
+    let (name, uid) = target_user(user)?;
+    if !nix::unistd::getuid().is_root() {
+        return Err("clearing lockouts requires root: run `sudo tuxhello unlock`".into());
+    }
+    client.reset_lockout(uid).map_err(|e| e.to_string())?;
+    println!("Lockouts cleared for {name}.");
     Ok(ExitCode::SUCCESS)
 }
 
@@ -384,6 +420,7 @@ fn main() -> ExitCode {
                 all,
                 user,
             } => delete(&client, method, id, all, user),
+            Command::Unlock { user } => unlock(&client, user),
             Command::Policy { service, user } => policy(&client, &service, user),
         });
     result.unwrap_or_else(|e| {

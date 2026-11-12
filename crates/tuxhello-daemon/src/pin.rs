@@ -183,6 +183,22 @@ impl PinBackend {
             .map_err(|e| e.to_string())
     }
 
+    /// Seconds the PIN stays locked for this user (0 = not locked).
+    pub fn locked_for(&self, uid: u32) -> u64 {
+        if !matches!(self.store.get(uid, METHOD, RECORD), Ok(Some(_))) {
+            return 0;
+        }
+        self.load_lockout(uid).remaining(now())
+    }
+
+    /// Clears the failure counter (root only; `Manager1.ResetLockout`).
+    pub fn reset_lockout(&self, uid: u32) -> Result<(), String> {
+        if !matches!(self.store.get(uid, METHOD, RECORD), Ok(Some(_))) {
+            return Ok(());
+        }
+        self.save_lockout(uid, Lockout::default())
+    }
+
     fn load_lockout(&self, uid: u32) -> Lockout {
         match self.store.get(uid, METHOD, STATE) {
             Ok(Some(b)) => Lockout::decode(&b).unwrap_or_else(|| {
@@ -297,6 +313,7 @@ impl Backend for PinBackend {
                     lock.failures
                 );
                 progress.emit("retry", "Incorrect PIN");
+                progress.failed_attempt();
             }
             Outcome::NoMatch
         })

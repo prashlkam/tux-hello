@@ -13,6 +13,7 @@ use zbus::interface;
 use zbus::message::Header;
 use zeroize::Zeroizing;
 
+use crate::audit;
 use crate::daemon::{caller_uid, may_act_on, Daemon, Error};
 use crate::{fingerprint, pin};
 
@@ -55,9 +56,19 @@ async fn require_root(conn: &zbus::Connection, hdr: &Header<'_>) -> Result<u32, 
         Ok(caller)
     } else {
         Err(Error::AccessDenied(
-            "enrolment requires root for now; run the command with sudo".into(),
+            "this requires root for now; run the command with sudo".into(),
         ))
     }
+}
+
+fn audit_change(event: &str, user: &str, uid: u32, caller: u32, method: &str, id: &str) {
+    audit::Record::new(event)
+        .s("user", user)
+        .n("uid", u64::from(uid))
+        .n("caller_uid", u64::from(caller))
+        .s("method", method)
+        .s("id", id)
+        .emit();
 }
 
 /// Records whose id starts with `_` are internal (e.g. the PIN lockout
@@ -130,6 +141,7 @@ impl ManagerService {
             .map_err(|e| Error::Failed(e.to_string()))?
             .map_err(Error::InvalidArgs)?;
         log::info!("PIN enrolled for {name:?} (uid {uid}) by uid {caller}");
+        audit_change("enroll", &name, uid, caller, pin::METHOD, "default");
         Ok(())
     }
 
@@ -160,6 +172,7 @@ impl ManagerService {
         .map_err(|e| Error::Failed(e.to_string()))?
         .map_err(Error::Failed)?;
         log::info!("security key {id:?} enrolled for {name:?} (uid {uid}) by uid {caller}");
+        audit_change("enroll", &name, uid, caller, crate::key::METHOD, &id);
         Ok(id)
     }
 
@@ -195,6 +208,14 @@ impl ManagerService {
         };
         if existed {
             log::info!("deleted {method}/{id} of uid {uid} (by uid {caller})");
+            audit_change(
+                "delete",
+                &user_name(uid).unwrap_or_default(),
+                uid,
+                caller,
+                &method,
+                &id,
+            );
         }
         Ok(existed)
     }
@@ -217,6 +238,60 @@ impl ManagerService {
             }
         }
         log::info!("deleted all enrolments of uid {uid} (by uid {caller})");
+        audit_change(
+            "delete",
+            &user_name(uid).unwrap_or_default(),
+            uid,
+            caller,
+            "*",
+            "*",
+        );
+        Ok(())
+    }
+
+    /// Lockout state of a user: `biometric-failures`, `biometrics-locked`
+    /// (0/1), `throttled-s` and `pin-locked-s` (seconds left, 0 = not locked).
+    async fn get_lockout(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        uid: u32,
+    ) -> Result<HashMap<String, u64>, Error> {
+        require_self_or_root(conn, &hdr, uid).await?;
+        let g = &self.d.guard;
+        let mut m = HashMap::new();
+        m.insert(
+            "biometric-failures".into(),
+            u64::from(g.biometric_failures(uid)),
+        );
+        m.insert(
+            "biometrics-locked".into(),
+            u64::from(g.biometrics_locked(uid)),
+        );
+        m.insert("throttled-s".into(), g.throttled(uid).unwrap_or(0));
+        m.insert("pin-locked-s".into(), self.d.pin.locked_for(uid));
+        Ok(m)
+    }
+
+    /// Clears a user's rate limit, biometric lockout and PIN lockout. Root
+    /// only: `sudo` has then verified a password, which is what "until the
+    /// password succeeds" means for a daemon that never sees passwords.
+    async fn reset_lockout(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        uid: u32,
+    ) -> Result<(), Error> {
+        let caller = require_root(conn, &hdr).await?;
+        let name = user_name(uid)?;
+        self.d.guard.reset(uid);
+        self.d.pin.reset_lockout(uid).map_err(Error::Failed)?;
+        log::info!("lockouts of {name:?} (uid {uid}) reset by uid {caller}");
+        audit::Record::new("lockout.reset")
+            .s("user", &name)
+            .n("uid", u64::from(uid))
+            .n("caller_uid", u64::from(caller))
+            .emit();
         Ok(())
     }
 

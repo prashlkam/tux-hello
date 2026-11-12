@@ -285,6 +285,13 @@ impl FingerprintBackend {
                         progress.emit("no-match", "Fingerprint not recognised");
                         outcome = Outcome::NoMatch;
                         let _ = dev.verify_stop().await;
+                        if progress.failed_attempt() {
+                            progress.emit(
+                                "locked",
+                                "Too many failed attempts: fingerprint is off until you use your PIN or security key",
+                            );
+                            break 'tries;
+                        }
                         continue 'tries;
                     }
                     "verify-retry-scan"
@@ -324,6 +331,10 @@ impl Backend for FingerprintBackend {
 
     fn available(&self) -> bool {
         self.cfg.enabled && self.seen_device.load(Ordering::Relaxed)
+    }
+
+    fn biometric(&self) -> bool {
+        true
     }
 
     fn usable(self: Arc<Self>, user: String, _uid: u32) -> BoxFuture<bool> {

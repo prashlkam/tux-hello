@@ -55,6 +55,7 @@ impl Backend for Stub {
                 }
                 StubOutcome::Failure => {
                     progress.emit("no-match", "Stub backend: not recognised");
+                    progress.failed_attempt();
                     Outcome::NoMatch
                 }
                 StubOutcome::Unavailable => Outcome::Unavailable,
@@ -95,7 +96,14 @@ mod tests {
             uid: 1000,
             service: "test".into(),
         };
-        run(session.clone(), effective, backends, req).await;
+        run(
+            session.clone(),
+            effective,
+            backends,
+            req,
+            crate::guard::tests::test_guard(),
+        )
+        .await;
         session.state()
     }
 

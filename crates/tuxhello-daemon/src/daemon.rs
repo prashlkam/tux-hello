@@ -14,6 +14,7 @@ use zbus::DBusError;
 use crate::backend::Backend;
 use crate::config::DaemonConfig;
 use crate::fingerprint::FingerprintBackend;
+use crate::guard::Guard;
 use crate::key::KeyBackend;
 use crate::pin::PinBackend;
 use crate::session::Session;
@@ -43,10 +44,12 @@ pub struct Daemon {
     pub key: Option<Arc<KeyBackend>>,
     pub fingerprint: Option<Arc<FingerprintBackend>>,
     pub store: Arc<Store>,
+    pub guard: Arc<Guard>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
 }
 
 impl Daemon {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cfg: DaemonConfig,
         policy_dirs: Vec<PathBuf>,
@@ -55,6 +58,7 @@ impl Daemon {
         key: Option<Arc<KeyBackend>>,
         fingerprint: Option<Arc<FingerprintBackend>>,
         store: Arc<Store>,
+        guard: Arc<Guard>,
     ) -> Result<Self, PolicyError> {
         let policy = Arc::new(load_policy(&policy_dirs)?);
         Ok(Daemon {
@@ -66,6 +70,7 @@ impl Daemon {
             key,
             fingerprint,
             store,
+            guard,
             sessions: Mutex::new(HashMap::new()),
         })
     }

@@ -17,7 +17,10 @@ tuxhello test --service sudo      # try a real authentication, without PAM
 tuxhello delete pin               # remove your PIN
 tuxhello delete key backup        # remove one key
 tuxhello status                   # daemon, store and methods
+sudo tuxhello unlock              # clear lockouts after too many failed attempts
 ```
+
+After 5 wrong fingerprints in a row, biometrics are switched off for that user until a PIN or security-key login succeeds (or `sudo tuxhello unlock`). After 10 failed attempts of any kind within 5 minutes, Tux Hello steps aside for that user until the window passes. In both cases the password keeps working. Every attempt and result is written to the audit log as one JSON line (`journalctl -u tuxhellod | grep audit`). The numbers are in `[limits]` in `/etc/tuxhello/config.toml`; see [ADR 0010](docs/adr/0010-limits-and-audit-log.md).
 
 ## Turning it on for sudo, polkit and screen lockers
 

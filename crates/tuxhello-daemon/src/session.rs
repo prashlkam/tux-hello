@@ -11,7 +11,9 @@ use tuxhello_policy::Effective;
 use tuxhello_proto::{event, SessionState};
 use zeroize::Zeroizing;
 
+use crate::audit;
 use crate::backend::{Backend, Outcome, Progress, Request};
+use crate::guard::Guard;
 
 /// Events beyond this many unread ones are dropped (oldest first), so a
 /// client that never polls cannot make the daemon grow without bound.
@@ -272,6 +274,7 @@ pub async fn run(
     effective: Effective,
     backends: Vec<Arc<dyn Backend>>,
     req: Request,
+    guard: Arc<Guard>,
 ) {
     let mut t = Tally {
         effective: &effective,
@@ -297,6 +300,17 @@ pub async fn run(
                 req.service,
                 t.effective.class
             );
+            guard.note_success(req.uid);
+            audit::Record::new("auth.result")
+                .s("session", &session.id)
+                .s("user", &req.user)
+                .n("uid", u64::from(req.uid))
+                .s("service", &req.service)
+                .s("class", &t.effective.class)
+                .s("result", "success")
+                .s("method", &m)
+                .n("assurance", u64::from(a))
+                .emit();
             session.finish(SessionState::Success, &m, a);
             return true;
         }
@@ -309,6 +323,14 @@ pub async fn run(
                 state.as_str(),
                 req.service
             );
+            audit::Record::new("auth.result")
+                .s("session", &session.id)
+                .s("user", &req.user)
+                .n("uid", u64::from(req.uid))
+                .s("service", &req.service)
+                .s("class", &t.effective.class)
+                .s("result", state.as_str())
+                .emit();
             session.finish(state, "", 0);
             return true;
         }
@@ -321,7 +343,8 @@ pub async fn run(
     for b in automatic {
         let name = b.name();
         running.insert(name);
-        let progress = Progress::new(session.clone(), name);
+        let progress =
+            Progress::for_request(session.clone(), name, guard.clone(), &req, b.biometric());
         let req = req.clone();
         set.spawn(async move { (name, b.verify(req, progress).await) });
     }
@@ -367,7 +390,8 @@ pub async fn run(
     // Phase 2: interactive methods, one at a time.
     for b in interactive {
         let name = b.name();
-        let progress = Progress::new(session.clone(), name);
+        let progress =
+            Progress::for_request(session.clone(), name, guard.clone(), &req, b.biometric());
         let outcome = b.verify(req.clone(), progress).await;
         log::debug!("session {}: {name} -> {outcome:?}", session.id);
         t.record(name, outcome);
@@ -563,7 +587,14 @@ mod tests {
         backends: Vec<Arc<dyn Backend>>,
     ) -> (SessionState, String, u32) {
         let s = Arc::new(session());
-        run(s.clone(), effective, backends, req()).await;
+        run(
+            s.clone(),
+            effective,
+            backends,
+            req(),
+            crate::guard::tests::test_guard(),
+        )
+        .await;
         let snap = s.take_snapshot();
         (snap.state, snap.method, snap.assurance)
     }

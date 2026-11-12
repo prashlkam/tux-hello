@@ -33,7 +33,7 @@
 | T1 | Remote | Uses biometrics/PIN over SSH or RDP | The module returns `PAM_IGNORE` for non-local `PAM_RHOST` and for `sshd`/`xrdp-sesman`/`cockpit`; the daemon rejects remote `rhost` again. | **Done (P0)**, tested |
 | T2 | Local user | Uses the daemon to test whether a face or voice recording matches *another* account | Non-root callers may only authenticate their own UID (from bus credentials, not from the request). | **Done (P0)**, tested |
 | T3 | Local user | Snoops on or hijacks another caller's session | Session ids are 128-bit random, bound to the creator's unique bus name, and "not yours" gives the same error as "doesn't exist". | **Done (P0)** |
-| T4 | Local user | Exhausts daemon resources (DoS) | Per-UID (4) and global (64) session limits, bounded event queues, hard session lifetime. | **Done (P0)**; per-UID attempt rate limiting comes in P1 |
+| T4 | Local user | Exhausts daemon resources (DoS) | Per-UID (4) and global (64) session limits, bounded event queues, hard session lifetime. | **Done (P0)**; failed attempts are rate limited per target user across methods (10 in 5 min, then not offered; **done P1**) |
 | T5 | Anyone | Daemon bug or crash locks users out | The module falls through on every error. The integration suite covers: daemon absent, daemon killed mid-session, timeouts, not enrolled, unavailable. | **Done (P0)**, tested |
 | T6 | Anyone | Module bug crashes `sudo` or the greeter | `catch_unwind` at the FFI boundary; no threads; libdbus calls with hard timeouts. | **Done (P0)** |
 | T7 | Local user | Impersonates the daemon on the bus | The D-Bus policy only lets `tuxhello` and root own `org.tuxhello.Auth1`. | **Done (P0)** |
@@ -54,6 +54,7 @@
 ## 4. Phase 0 limits (known and accepted)
 
 - **The stub backend authenticates anyone when configured with `outcome = "success"`.** It only exists in builds made with `--features tuxhello-daemon/stub-backend`, which must never be packaged.
-- There is no rate limiting on *attempts* yet, only on concurrent sessions.
+- The attempt rate limit is kept in memory, so restarting the daemon clears it. The PIN backoff and the biometric lockout are persistent.
+- The daemon never sees a password login, so "biometrics off until the password succeeds" is implemented as: until a PIN or security key succeeds, or root runs `tuxhello unlock`.
 - The daemon runs in-process backends; the process isolation of T11 starts in Phase 1.
 - Unprivileged callers are identified by UID only. A user's own malware can authenticate as that user if the user is physically present, for example by looking at the camera. This is inherent to any biometric unlock; Windows Hello behaves the same way.

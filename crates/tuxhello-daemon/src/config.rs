@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::audit::AuditConfig;
 use crate::fingerprint::FingerprintConfig;
+use crate::guard::LimitsConfig;
 use crate::key::KeyConfig;
 use crate::pin::PinConfig;
 
@@ -25,6 +27,10 @@ pub struct Config {
     pub key: KeyConfig,
     #[serde(default)]
     pub fingerprint: FingerprintConfig,
+    #[serde(default)]
+    pub limits: LimitsConfig,
+    #[serde(default)]
+    pub audit: AuditConfig,
     #[serde(default)]
     pub stub: StubConfig,
 }
@@ -193,6 +199,11 @@ mod tests {
         assert_eq!(c.pin.min_length, 4);
         assert_eq!(c.key.rp_id, "pam://tuxhello");
         assert!(!c.key.require_uv);
+        assert_eq!(c.limits.max_failures, 10);
+        assert_eq!(c.limits.window_s, 300);
+        assert_eq!(c.limits.biometric_max_failures, 5);
+        assert!(c.audit.enabled);
+        assert!(c.audit.file.is_none());
     }
 
     #[test]
@@ -209,6 +220,12 @@ mod tests {
             [key]
             rp_id = "pam://host"
             require_uv = true
+            [limits]
+            max_failures = 20
+            window_s = 60
+            biometric_max_failures = 3
+            [audit]
+            file = "/var/lib/tuxhello/audit.log"
             [stub]
             enabled = true
             outcome = "success"
@@ -226,12 +243,20 @@ mod tests {
         assert!(!c.pin.allow_alnum);
         assert_eq!(c.key.rp_id, "pam://host");
         assert!(c.key.require_uv);
+        assert_eq!(c.limits.max_failures, 20);
+        assert_eq!(c.limits.biometric_max_failures, 3);
+        assert_eq!(
+            c.audit.file,
+            Some(PathBuf::from("/var/lib/tuxhello/audit.log"))
+        );
     }
 
     #[test]
     fn rejects_unknown_keys() {
         assert!(Config::parse("[stub]\nbogus = 1\n").is_err());
         assert!(Config::parse("[pin]\nbogus = 1\n").is_err());
+        assert!(Config::parse("[limits]\nbogus = 1\n").is_err());
+        assert!(Config::parse("[audit]\nbogus = 1\n").is_err());
     }
 
     #[test]

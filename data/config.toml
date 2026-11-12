@@ -3,9 +3,28 @@
 
 [daemon]
 # Sessions are cancelled after this many seconds no matter what.
-session_lifetime_s = 60
+session_lifetime_s = 120
 max_sessions_per_uid = 4
 max_sessions = 64
+
+[limits]
+# Failed attempts per user, all methods together, allowed within window_s.
+# Past that, Tux Hello is not offered to that user until the window has
+# passed; the password keeps working. 0 = no limit.
+max_failures = 10
+window_s = 300
+# Consecutive failed biometric attempts (fingerprint, later face and voice)
+# before biometrics are switched off for that user. A PIN or security-key
+# login, or `sudo tuxhello unlock`, switches them back on. 0 = never.
+biometric_max_failures = 5
+
+[audit]
+# One JSON line per event (who, service, method, result, time) in the
+# daemon's log: `journalctl -u tuxhellod | grep audit`.
+enabled = true
+# Also append the records to a file. The systemd unit only lets the daemon
+# write below /var/lib/tuxhello.
+# file = "/var/lib/tuxhello/audit.log"
 
 # Test-only backend. It only exists in builds made with the `stub-backend`
 # feature (meson -Dstub_backend=true), which distribution packages must not

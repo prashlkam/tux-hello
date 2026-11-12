@@ -595,6 +595,7 @@ impl Backend for KeyBackend {
                                     req.service
                                 );
                                 progress.emit("rejected", "Security key rejected");
+                                progress.failed_attempt();
                                 return Outcome::NoMatch;
                             }
                         }
@@ -605,6 +606,7 @@ impl Backend for KeyBackend {
                     }
                     Err(KeyError::PinInvalid) => {
                         progress.emit("retry", "Wrong security key PIN");
+                        progress.failed_attempt();
                         return Outcome::NoMatch;
                     }
                     Err(KeyError::PinRequired) => {
@@ -621,6 +623,7 @@ impl Backend for KeyBackend {
             }
             if outcome == Outcome::NoMatch {
                 progress.emit("rejected", "Security key not recognised");
+                progress.failed_attempt();
             }
             outcome
         })

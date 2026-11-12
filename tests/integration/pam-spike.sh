@@ -225,6 +225,48 @@ INPUT=2468 expect fail 10 "lockout survives a daemon restart" pt tuxhello-test "
 INPUT=$'1357\n1357' expect ok 10 "root resets the PIN" "$CLI" enroll pin --user "$USER_A"
 INPUT=1357 expect ok 10 "new PIN works and the lockout is cleared" pt tuxhello-test "$USER_A"
 
+echo "== rate limit across methods, and the audit log"
+start_daemon "$(base_config; printf '[limits]\nmax_failures = 3\nwindow_s = 6\n[audit]\nfile = "%s"\n' "$WORK/audit.log")"
+INPUT=1357 expect ok 10 "PIN works before the limit is reached" pt tuxhello-test "$USER_A"
+INPUT=$'1111\n2222\n3333' expect fail 15 "three wrong PINs reach the limit" pt tuxhello-test "$USER_A"
+INPUT=1357 expect fail 3 "rate limited: not even the right PIN is asked for" pt tuxhello-test "$USER_A"
+grep -q "PIN" "$WORK/out" &&
+	{ echo "FAIL  a PIN prompt was shown while rate limited"; FAILURES=$((FAILURES + 1)); } ||
+	echo "PASS  no prompt while rate limited"
+INPUT=1357 expect ok 3 "rate limited: falls through to the next module" pt tuxhello-test-fallthrough "$USER_A"
+expect ok 5 "list explains the pause" runuser -u "$USER_A" -- "$CLI" list
+out_contains "paused" "pause shown"
+sleep 7
+INPUT=1357 expect ok 10 "the limit lifts after the window" pt tuxhello-test "$USER_A"
+
+audit_has() { # $1 description, $2... fixed strings that one audit line must all contain
+	local desc=$1 lines
+	shift
+	lines=$(cat "$WORK/audit.log" 2>/dev/null)
+	for pat in "$@"; do lines=$(grep -F -- "$pat" <<<"$lines"); done
+	if [ -n "$lines" ]; then
+		printf 'PASS  %s\n' "$desc"
+	else
+		printf 'FAIL  %s\n' "$desc"
+		sed 's/^/      | /' "$WORK/audit.log" 2>/dev/null
+		FAILURES=$((FAILURES + 1))
+	fi
+}
+audit_has "audit: session start" '"event":"auth.begin"' "\"user\":\"$USER_A\"" '"service":"tuxhello-test"'
+audit_has "audit: success with method and assurance" '"event":"auth.result"' '"result":"success"' '"method":"pin"' '"assurance":2'
+audit_has "audit: each failed attempt" '"event":"auth.attempt"' '"method":"pin"' '"result":"failed"'
+audit_has "audit: failed session" '"event":"auth.result"' '"result":"failure"'
+audit_has "audit: rate-limit refusal" '"event":"auth.refused"' '"reason":"rate-limited"'
+[ "$(grep -vc '^{"time":[0-9]*,"event":"[a-z.]*".*}$' "$WORK/audit.log")" = 0 ] &&
+	echo "PASS  audit: every line is one JSON object" ||
+	{ echo "FAIL  audit: malformed lines"; FAILURES=$((FAILURES + 1)); }
+grep -q -e 1357 -e 1111 -e 2222 -e 3333 "$WORK/audit.log" &&
+	{ echo "FAIL  audit log contains a PIN"; FAILURES=$((FAILURES + 1)); } ||
+	echo "PASS  audit: no PINs in the log"
+[ "$(stat -c %a "$WORK/audit.log")" = 600 ] &&
+	echo "PASS  audit file is private (0600)" ||
+	{ echo "FAIL  audit file mode $(stat -c %a "$WORK/audit.log")"; FAILURES=$((FAILURES + 1)); }
+
 echo "== policy reload (SIGHUP)"
 printf '[class.other]\nrequire = "key"\n' >"$WORK/policy.d/50-key-only.toml"
 kill -HUP "$DAEMON_PID"
@@ -377,6 +419,38 @@ else
 	INPUT=$'2468\n2468' expect ok 10 "enroll a PIN as well" "$CLI" enroll pin --user "$USER_A"
 	scan 3 20 SCAN print-b
 	INPUT=2468 expect ok 25 "three wrong fingers, then the PIN works" pt tuxhello-test "$USER_A"
+	wait $SCANNER
+
+	echo "== biometric lockout"
+	bio_config() { base_config; printf '[limits]\nbiometric_max_failures = 3\n'; }
+	no_reader_prompt() { # $1 description
+		grep -q "fingerprint reader" "$WORK/out" &&
+			{ echo "FAIL  $1"; sed 's/^/      | /' "$WORK/out"; FAILURES=$((FAILURES + 1)); } ||
+			echo "PASS  $1"
+	}
+	start_daemon "$(bio_config)"
+	scan 3 20 SCAN print-b
+	INPUT='' expect fail 25 "three unknown fingers switch biometrics off" pt tuxhello-test "$USER_A"
+	wait $SCANNER
+	out_contains "fingerprint is off" "the lockout is explained to the user"
+	INPUT='' expect fail 5 "locked out: straight to the PIN prompt" pt tuxhello-test "$USER_A"
+	no_reader_prompt "the fingerprint reader is not offered"
+	start_daemon "$(bio_config)"
+	INPUT='' expect fail 5 "the lockout survives a daemon restart" pt tuxhello-test "$USER_A"
+	no_reader_prompt "still not offered after the restart"
+	expect ok 5 "list explains the lockout" runuser -u "$USER_A" -- "$CLI" list
+	out_contains "switched off" "lockout shown"
+	expect fail 5 "an unprivileged user cannot clear it" runuser -u "$USER_A" -- "$CLI" unlock
+	INPUT=2468 expect ok 10 "the PIN still works while biometrics are off" pt tuxhello-test "$USER_A"
+	scan 1 15 SCAN print-a
+	expect ok 15 "a PIN success switches biometrics back on" pt tuxhello-test "$USER_A"
+	wait $SCANNER
+	scan 3 20 SCAN print-b
+	INPUT='' expect fail 25 "lock biometrics out again" pt tuxhello-test "$USER_A"
+	wait $SCANNER
+	expect ok 5 "root clears the lockout (tuxhello unlock)" "$CLI" unlock --user "$USER_A"
+	scan 1 15 SCAN print-a
+	expect ok 15 "the finger works again after unlock" pt tuxhello-test "$USER_A"
 	wait $SCANNER
 
 	expect ok 10 "user deletes their finger" runuser -u "$USER_A" -- "$CLI" delete fingerprint right-index-finger

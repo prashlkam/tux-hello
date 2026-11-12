@@ -365,6 +365,23 @@ impl Client {
     }
 
     /// Describes the effective policy for `uid` and a PAM service.
+    /// Lockout state: `biometric-failures`, `biometrics-locked`,
+    /// `throttled-s`, `pin-locked-s`.
+    pub fn lockout(&self, uid: u32) -> Result<HashMap<String, u64>, ClientError> {
+        let (m,): (HashMap<String, u64>,) = self
+            .manager(CALL_TIMEOUT)
+            .method_call(MANAGER_INTERFACE, "GetLockout", (uid,))
+            .map_err(map_err)?;
+        Ok(m)
+    }
+
+    /// Clears a user's lockouts (root only).
+    pub fn reset_lockout(&self, uid: u32) -> Result<(), ClientError> {
+        self.manager(CALL_TIMEOUT)
+            .method_call::<(), _, _, _>(MANAGER_INTERFACE, "ResetLockout", (uid,))
+            .map_err(map_err)
+    }
+
     pub fn explain_policy(
         &self,
         uid: u32,

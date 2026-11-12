@@ -10,6 +10,7 @@ use zbus::message::Header;
 use zbus::zvariant::OwnedValue;
 use zeroize::Zeroizing;
 
+use crate::audit;
 use crate::backend::{Backend, Request};
 use crate::daemon::{caller_uid, may_act_on, sender_name, Daemon, Error};
 use crate::session::{self, Session};
@@ -96,11 +97,37 @@ impl AuthService {
         if is_remote_host(rhost.as_deref()) {
             return Err(Error::Unavailable("not offered to remote sessions".into()));
         }
+        let refused = |reason: &str| {
+            audit::Record::new("auth.refused")
+                .s("user", &user)
+                .n("uid", u64::from(target_uid))
+                .s("service", &service)
+                .n("caller_uid", u64::from(caller))
+                .s("reason", reason)
+                .emit();
+        };
+        if let Some(secs) = self.d.guard.throttled(target_uid) {
+            log::warn!(
+                "user {user:?} service {service:?}: too many failed attempts,                  not offered for another {secs} s"
+            );
+            refused("rate-limited");
+            return Err(Error::Unavailable(format!(
+                "too many failed attempts; try again in {secs} s"
+            )));
+        }
 
         let effective = self.d.effective(&service, &user, target.gid.as_raw());
         let wanted = effective.require.methods();
+        let biometrics_locked = self.d.guard.biometrics_locked(target_uid);
         let mut backends: Vec<Arc<dyn Backend>> = Vec::new();
         for b in self.d.backends.iter().filter(|b| wanted.contains(b.name())) {
+            if b.biometric() && biometrics_locked {
+                log::info!(
+                    "user {user:?}: {} not offered (biometrics are locked out)",
+                    b.name()
+                );
+                continue;
+            }
             if b.clone().usable(user.clone(), target_uid).await {
                 backends.push(b.clone());
             }
@@ -116,6 +143,9 @@ impl AuthService {
                 effective.class,
                 effective.min_assurance
             );
+            if biometrics_locked {
+                refused("biometrics-locked");
+            }
             return Err(Error::NotEnrolled(format!("no usable method for {user}")));
         }
 
@@ -138,13 +168,27 @@ impl AuthService {
             effective.class,
             effective.require
         );
+        audit::Record::new("auth.begin")
+            .s("session", &id)
+            .s("user", &user)
+            .n("uid", u64::from(target_uid))
+            .s("service", &service)
+            .s("class", &effective.class)
+            .n("caller_uid", u64::from(caller))
+            .emit();
 
         let req = Request {
             user,
             uid: target_uid,
             service,
         };
-        let task = tokio::spawn(session::run(session.clone(), effective, backends, req));
+        let task = tokio::spawn(session::run(
+            session.clone(),
+            effective,
+            backends,
+            req,
+            self.d.guard.clone(),
+        ));
         session.set_task(task.abort_handle());
 
         // Hard lifetime: cancel and forget the session no matter what the

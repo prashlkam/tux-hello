@@ -1,10 +1,12 @@
 //! tuxhellod — the Tux Hello system daemon.
 
+mod audit;
 mod auth;
 mod backend;
 mod config;
 mod daemon;
 mod fingerprint;
+mod guard;
 mod key;
 mod manager;
 mod pin;
@@ -94,6 +96,9 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         store.key_description()
     );
 
+    audit::init(&cfg.audit)?;
+    let guard = Arc::new(guard::Guard::new(cfg.limits.clone(), store.clone()));
+
     let pin = Arc::new(PinBackend::new(store.clone(), cfg.pin.clone()));
     let mut backends: Vec<Arc<dyn Backend>> = vec![pin.clone()];
     let key = soft_key(&cfg)
@@ -120,6 +125,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         key,
         fingerprint,
         store,
+        guard,
     )?);
 
     let builder = if args.session_bus {
@@ -150,7 +156,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             _ = term.recv() => { log::info!("SIGTERM received, exiting"); break; }
             _ = tokio::signal::ctrl_c() => { log::info!("SIGINT received, exiting"); break; }
             _ = hup.recv() => match daemon.reload_policy() {
-                Ok(()) => log::info!("SIGHUP: policy reloaded"),
+                Ok(()) => {
+                    log::info!("SIGHUP: policy reloaded");
+                    audit::Record::new("policy.reload").emit();
+                }
                 Err(e) => log::error!("SIGHUP: policy reload failed, keeping the old one: {e}"),
             },
         }

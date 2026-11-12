@@ -9,6 +9,8 @@ use std::sync::Arc;
 
 use zeroize::Zeroizing;
 
+use crate::audit;
+use crate::guard::Guard;
 use crate::session::Session;
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
@@ -35,11 +37,61 @@ pub enum Outcome {
 pub struct Progress {
     session: Arc<Session>,
     method: &'static str,
+    limits: Option<Limits>,
+}
+
+/// What a backend's failed attempts are counted against.
+struct Limits {
+    guard: Arc<Guard>,
+    req: Request,
+    biometric: bool,
 }
 
 impl Progress {
-    pub fn new(session: Arc<Session>, method: &'static str) -> Self {
-        Progress { session, method }
+    /// A handle for one backend verifying `req`; failed attempts count
+    /// towards the user's limits.
+    pub fn for_request(
+        session: Arc<Session>,
+        method: &'static str,
+        guard: Arc<Guard>,
+        req: &Request,
+        biometric: bool,
+    ) -> Self {
+        Progress {
+            session,
+            method,
+            limits: Some(Limits {
+                guard,
+                req: req.clone(),
+                biometric,
+            }),
+        }
+    }
+
+    /// Reports one failed attempt (a wrong PIN, an unknown finger, a rejected
+    /// key). Returns true if the backend must stop now because the method
+    /// has just been locked out.
+    pub fn failed_attempt(&self) -> bool {
+        let Some(l) = &self.limits else {
+            return false;
+        };
+        audit::Record::new("auth.attempt")
+            .s("session", &self.session.id)
+            .s("user", &l.req.user)
+            .n("uid", u64::from(l.req.uid))
+            .s("service", &l.req.service)
+            .s("method", self.method)
+            .s("result", "failed")
+            .emit();
+        let locked = l.guard.note_failure(l.req.uid, l.biometric);
+        if locked {
+            audit::Record::new("lockout.biometric")
+                .s("user", &l.req.user)
+                .n("uid", u64::from(l.req.uid))
+                .s("method", self.method)
+                .emit();
+        }
+        locked
     }
 
     /// Shows an informational message.
@@ -66,6 +118,11 @@ pub trait Backend: Send + Sync {
     /// time, after all non-interactive backends have finished, because a
     /// PAM prompt blocks the conversation.
     fn interactive(&self) -> bool {
+        false
+    }
+    /// Biometric methods share one lockout: after too many consecutive
+    /// failures they are not offered until a PIN or security key succeeds.
+    fn biometric(&self) -> bool {
         false
     }
     /// Whether the user has enrolled this method (cheap, synchronous
