@@ -76,3 +76,13 @@ These checks are unit-tested against a software authenticator that signs with re
 - Importing `pam_u2f` key mappings: needs a careful check of pam_u2f's on-disk public-key format, and its per-host RP id (`pam://$HOSTNAME`).
 - `hmac-secret`, for keyring escrow (Phase 4).
 - Waiting for a key to be plugged in after the prompt appears. Today a key must be present when authentication starts; otherwise the method is skipped.
+
+## Addendum (2026-11-12): pam_u2f import and per-record relying-party ids
+
+`tuxhello import pam-u2f` reads a pam_u2f key file (`~/.config/Yubico/u2f_keys` or `/etc/u2f_mappings`) and stores each credential as a normal key record.
+
+- Both formats are read: `KeyHandle,PublicKey,CoseType,Options` (pam_u2f 1.1+) and the older `KeyHandle,HexPublicKey`. ES256 and EdDSA are imported; RS256 and resident credentials (`*`, no key handle) are reported and skipped.
+- A credential only answers for the relying-party id it was created for. pam_u2f used its `origin` (`pam://<hostname>` by default), so that id is stored in the record (`--origin` overrides the default). During authentication the key is asked once per distinct id among the user's records; a key that holds none of a group's credentials says so without waiting for a touch.
+- The import cannot be checked without the key present. If the origin is wrong the key is simply "not recognised"; `tuxhello test` shows that at once.
+- pam_u2f's `+pin`/`+verification` options are not carried over per credential: user verification is one setting for all keys (`[key] require_uv`). The import says so when a credential had them.
+- The test authenticator now binds credentials to their relying-party id, as real keys do, so a wrong id fails in tests as it would on hardware.

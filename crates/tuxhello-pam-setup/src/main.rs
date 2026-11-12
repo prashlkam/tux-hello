@@ -4,10 +4,13 @@
 //!   the service's first auth line, e.g. in /etc/pam.d/sudo. Shared files such
 //!   as system-auth or common-auth are never edited in this mode.
 //! * System-wide on Debian/Ubuntu: a pam-auth-update profile.
+//! * System-wide on Fedora/RHEL: an authselect profile with a `with-tuxhello`
+//!   feature (see `authselect.rs`).
 //! * Every change is preceded by a backup; `rollback` restores the latest
 //!   one. `--dry-run` shows what would change. Each edit is verified to be
 //!   exactly "the original plus our block" before it is written.
 
+mod authselect;
 mod pamfile;
 
 use std::collections::BTreeSet;
@@ -134,7 +137,8 @@ enum Cmd {
         #[arg(long)]
         list: bool,
     },
-    /// Debian/Ubuntu: enable or disable for every service via pam-auth-update.
+    /// Enable or disable for every local service: pam-auth-update on
+    /// Debian/Ubuntu, authselect on Fedora/RHEL.
     SystemWide {
         #[arg(value_parser = ["enable", "disable"])]
         action: String,
@@ -370,6 +374,11 @@ fn status(env: &Env) -> Res {
             println!("system-wide:         enabled via pam-auth-update (common-auth)");
         }
     }
+    if env.is_real_root() && env.distro_family() == "fedora" {
+        if let Some(profile) = authselect::enabled_profile() {
+            println!("system-wide:         enabled via authselect ({profile})");
+        }
+    }
     let mut candidates: BTreeSet<&str> = DEFAULT_SERVICES.iter().copied().collect();
     candidates.extend(LOGIN_SERVICES);
     println!("\nservices on this system:");
@@ -442,7 +451,7 @@ fn enable(env: &Env, services: Vec<String>, dry_run: bool, skip_module_check: bo
         }
         if FORBIDDEN.contains(&svc.as_str()) {
             problems.push(format!(
-                "{svc}: refused (remote access or shared include file; use system-wide on Debian)"
+                "{svc}: refused (remote access or shared include file; see `system-wide`)"
             ));
             continue;
         }
@@ -653,13 +662,47 @@ fn rollback(env: &Env, id: Option<String>, list: bool) -> Res {
     Ok(ExitCode::SUCCESS)
 }
 
-fn system_wide(env: &Env, action: &str) -> Res {
-    if env.distro_family() != "debian" {
-        return Err(
-            "system-wide mode is only implemented for Debian/Ubuntu (pam-auth-update); \
-             enable individual services instead"
-                .into(),
+/// Fedora/RHEL: system-wide mode through authselect.
+fn system_wide_authselect(env: &Env, action: &str) -> Res {
+    if !env.is_real_root() {
+        return Err("system-wide mode with --root is not supported with authselect".into());
+    }
+    require_root(env, false)?;
+    if action == "enable" {
+        if env.module_installed().is_none() {
+            return Err(format!("{MODULE} is not installed"));
+        }
+        let backup = format!("tuxhello-{}", now());
+        let profile = authselect::enable(&backup)?;
+        println!(
+            "System-wide Tux Hello enabled: authselect profile {profile}, feature {}.",
+            authselect::FEATURE
         );
+        println!(
+            "Undo with `tuxhello-pam-setup system-wide disable` (authselect backup: {backup})."
+        );
+    } else {
+        match authselect::disable()? {
+            Some(base) => println!(
+                "System-wide Tux Hello disabled: authselect profile {base} is selected again."
+            ),
+            None => println!("System-wide Tux Hello is not enabled."),
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn system_wide(env: &Env, action: &str) -> Res {
+    match env.distro_family() {
+        "debian" => {}
+        "fedora" => return system_wide_authselect(env, action),
+        _ => {
+            return Err(
+                "system-wide mode is implemented for Debian/Ubuntu (pam-auth-update) and \
+                 Fedora/RHEL (authselect); enable individual services instead"
+                    .into(),
+            )
+        }
     }
     require_root(env, false)?;
     let profile = env.p(DEBIAN_PROFILE);

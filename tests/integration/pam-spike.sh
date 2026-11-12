@@ -340,6 +340,48 @@ sleep 0.5
 	{ echo "FAIL  key operation not cancelled"; FAILURES=$((FAILURES + 1)); }
 rm "$SK/no-touch"
 
+echo "== import from pam_u2f"
+# A syntactically valid pam_u2f file (the credentials belong to no real key;
+# that an imported key authenticates is covered by the daemon's unit tests).
+KH=$(head -c 48 /dev/urandom | base64 -w0)
+PK=$(head -c 64 /dev/urandom | base64 -w0)
+printf '%s:%s,%s,es256,+presence:*,%s,es256,+presence\nsomebody:%s,%s,es256,+presence\n' \
+	"$USER_A" "$KH" "$PK" "$PK" "$KH" "$PK" >"$WORK/u2f_keys"
+expect fail 5 "unprivileged user cannot import" \
+	runuser -u "$USER_A" -- "$CLI" import pam-u2f --file "$WORK/u2f_keys"
+expect ok 5 "root imports $USER_A's pam_u2f keys" \
+	"$CLI" import pam-u2f --file "$WORK/u2f_keys" --origin pam://oldhost --user "$USER_A"
+out_contains "Imported 1 security key" "one credential imported"
+out_contains "u2f-1" "it gets an id"
+out_contains "resident" "the resident credential is explained, not imported"
+expect ok 5 "list shows the imported key" runuser -u "$USER_A" -- "$CLI" list
+out_contains "key .*u2f-1" "imported key listed"
+expect fail 5 "importing the same file again adds nothing" \
+	"$CLI" import pam-u2f --file "$WORK/u2f_keys" --origin pam://oldhost --user "$USER_A"
+out_contains "already enrolled" "duplicate explained"
+expect fail 5 "a user without a line in the file gets nothing" \
+	"$CLI" import pam-u2f --file "$WORK/u2f_keys" --user "$USER_B"
+expect fail 5 "a missing file is reported" "$CLI" import pam-u2f --file "$WORK/nope" --user "$USER_A"
+expect ok 10 "the enrolled key still works next to the imported one" pt tuxhello-test "$USER_A"
+expect ok 5 "delete the imported key" runuser -u "$USER_A" -- "$CLI" delete key u2f-1
+
+echo "== doctor"
+# doctor looks for tuxhello-pam-setup on PATH; here it sits next to the CLI.
+doctor() { runuser -u "$USER_A" -- env PATH="$(dirname "$CLI"):$PATH" "$CLI" doctor; }
+expect ok 10 "doctor finds no failures on a working setup" doctor
+out_contains "\[ ok \] daemon .*is running" "doctor: daemon"
+out_contains "\[ ok \] pam module" "doctor: PAM module found"
+out_contains "\[ ok \] key .*plugged in" "doctor: security key"
+out_contains "\[ ok \] enrolments .*key" "doctor: enrolments"
+stop_daemon
+expect fail 10 "doctor fails when the daemon is down" doctor
+out_contains "FAIL.*daemon .*does not answer" "doctor: says the daemon does not answer"
+out_contains "journalctl -u tuxhellod" "doctor: says where to look"
+start_daemon "$(key_config $'enabled = true\noutcome = "unavailable"')"
+expect fail 10 "doctor fails when the stub backend is active" doctor
+out_contains "FAIL.*stub .*TEST-ONLY" "doctor: flags the stub backend"
+start_daemon "$(key_config)"
+
 echo "== two factors: key AND PIN"
 INPUT=$'8642\n8642' expect ok 10 "root enrolls a PIN again" "$CLI" enroll pin --user "$USER_A"
 printf '[class.other]\nrequire = { all = ["key", "pin"] }\n' >"$WORK/policy.d/50-2fa.toml"

@@ -1,5 +1,7 @@
 //! `tuxhello` — command-line client.
 
+mod doctor;
+
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::os::fd::AsFd;
 use std::process::ExitCode;
@@ -23,6 +25,8 @@ struct Cli {
 enum Command {
     /// Show daemon version, store and available methods.
     Status,
+    /// Check the installation and say how to fix what is wrong.
+    Doctor,
     /// Run a real authentication as the current user, without PAM.
     Test {
         /// PAM service name to report to the daemon (selects the policy).
@@ -56,6 +60,11 @@ enum Command {
         #[arg(long)]
         user: Option<String>,
     },
+    /// Bring in enrolments from another tool (requires sudo).
+    Import {
+        #[command(subcommand)]
+        source: ImportSource,
+    },
     /// Clear a user's lockouts: too many failed attempts, biometrics switched
     /// off, PIN backoff (requires sudo).
     Unlock {
@@ -67,6 +76,21 @@ enum Command {
         /// PAM service, e.g. sudo, gdm-password, swaylock.
         #[arg(default_value = "sudo")]
         service: String,
+        #[arg(long)]
+        user: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ImportSource {
+    /// Security keys registered with pam_u2f (pamu2fcfg).
+    PamU2f {
+        /// Key file (default: ~USER/.config/Yubico/u2f_keys, then /etc/u2f_mappings).
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+        /// The `origin` pam_u2f was configured with (default: pam://<hostname>).
+        #[arg(long)]
+        origin: Option<String>,
         #[arg(long)]
         user: Option<String>,
     },
@@ -327,6 +351,76 @@ fn list(client: &Client, user: Option<String>) -> Res {
     Ok(ExitCode::SUCCESS)
 }
 
+fn import_pam_u2f(
+    client: &Client,
+    file: Option<std::path::PathBuf>,
+    origin: Option<String>,
+    user: Option<String>,
+) -> Res {
+    let (name, uid) = target_user(user)?;
+    if !nix::unistd::getuid().is_root() {
+        return Err("importing requires root for now: run `sudo tuxhello import pam-u2f`".into());
+    }
+    let candidates: Vec<std::path::PathBuf> = match file {
+        Some(f) => vec![f],
+        None => {
+            let home = nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
+                .ok()
+                .flatten()
+                .map(|u| u.dir);
+            home.into_iter()
+                .map(|h| h.join(".config/Yubico/u2f_keys"))
+                .chain(["/etc/u2f_mappings".into()])
+                .collect()
+        }
+    };
+    let Some((path, text)) = candidates
+        .iter()
+        .find_map(|p| std::fs::read_to_string(p).ok().map(|t| (p, t)))
+    else {
+        return Err(format!(
+            "no pam_u2f key file found (looked at {}); name it with --file",
+            candidates
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    };
+    let origin = match origin {
+        Some(o) => o,
+        None => format!(
+            "pam://{}",
+            std::fs::read_to_string("/proc/sys/kernel/hostname")
+                .map_err(|e| format!("cannot read the hostname ({e}); pass --origin"))?
+                .trim()
+        ),
+    };
+    let (ids, notes) = client
+        .import_pam_u2f(uid, &text, &origin)
+        .map_err(|e| e.to_string())?;
+    println!(
+        "Imported {} security key(s) for {name} from {} (origin {origin}).",
+        ids.len(),
+        path.display()
+    );
+    for id in &ids {
+        println!("  key          {id}");
+    }
+    for n in &notes {
+        println!("  note: {n}");
+    }
+    if ids.is_empty() {
+        return Ok(ExitCode::from(1));
+    }
+    println!(
+        "Check with `tuxhello test`. If the key is not recognised, pam_u2f was probably set up \
+         with a different origin= (see its line in /etc/pam.d); delete the import and repeat \
+         it with --origin."
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
 fn unlock(client: &Client, user: Option<String>) -> Res {
     let (name, uid) = target_user(user)?;
     if !nix::unistd::getuid().is_root() {
@@ -394,9 +488,22 @@ fn main() -> ExitCode {
     } else {
         Client::connect
     };
+    if matches!(cli.command, Command::Doctor) {
+        // Doctor must work when nothing else does, so it handles a missing
+        // bus or daemon itself.
+        let client = connect().ok();
+        return match target_user(None) {
+            Ok((name, uid)) => doctor::run(client.as_ref(), cli.session_bus, &name, uid),
+            Err(e) => {
+                eprintln!("tuxhello: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
     let result = connect()
         .map_err(|e| e.to_string())
         .and_then(|client| match cli.command {
+            Command::Doctor => unreachable!("handled above"),
             Command::Status => status(&client),
             Command::Test { service, timeout } => test(&client, &service, timeout),
             Command::Enroll {
@@ -420,6 +527,9 @@ fn main() -> ExitCode {
                 all,
                 user,
             } => delete(&client, method, id, all, user),
+            Command::Import {
+                source: ImportSource::PamU2f { file, origin, user },
+            } => import_pam_u2f(&client, file, origin, user),
             Command::Unlock { user } => unlock(&client, user),
             Command::Policy { service, user } => policy(&client, &service, user),
         });

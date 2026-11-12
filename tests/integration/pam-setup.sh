@@ -146,6 +146,37 @@ if [ "$FAMILY" = debian ] && command -v pam-auth-update >/dev/null; then
 	INPUT="$PASSWORD" expect ok "password works after system-wide disable" pt
 fi
 
+if [ "$FAMILY" = system-auth ] && command -v authselect >/dev/null && grep -qi fedora /etc/os-release; then
+	echo "== Fedora system-wide (authselect)"
+	BEFORE=$(authselect current --raw)
+	cp /etc/pam.d/system-auth "$WORK/system-auth.orig"
+	cp /etc/pam.d/password-auth "$WORK/password-auth.orig"
+	expect ok "system-wide enable" "$SETUP" system-wide enable
+	check "system-auth now uses pam_tuxhello" grep -q pam_tuxhello.so /etc/pam.d/system-auth
+	check "password-auth (sshd) is untouched" same_file /etc/pam.d/password-auth "$WORK/password-auth.orig"
+	check "the feature is on in a custom profile" \
+		bash -c 'authselect current --raw | grep -q "^custom/tuxhello-.* with-tuxhello"'
+	check "the earlier features are kept" \
+		bash -c "for f in ${BEFORE#* }; do authselect current --raw | grep -qw -- \"\$f\" || exit 1; done"
+	check "authselect accepts the result" authselect check
+	expect ok "status reports it" "$SETUP" status
+	check "status names the authselect profile" grep -q "enabled via authselect" "$WORK/out"
+	INPUT="$PIN" expect ok "PIN works via system-auth" pt
+	INPUT=$'\n'"$PASSWORD" expect ok "empty PIN falls through to the password via system-auth" pt
+	INPUT=$'\nwrong-password' expect fail "empty PIN + wrong password fails" pt
+	command -v faillock >/dev/null && faillock --user "$USER_A" --reset 2>/dev/null
+	expect ok "enabling twice is harmless" "$SETUP" system-wide enable
+	check "apply-changes keeps our line (it is in the profile, not hand-edited)" \
+		bash -c 'authselect apply-changes && grep -q pam_tuxhello.so /etc/pam.d/system-auth'
+	expect ok "system-wide disable" "$SETUP" system-wide disable
+	check "system-auth is byte for byte what it was" same_file /etc/pam.d/system-auth "$WORK/system-auth.orig"
+	check "the original profile and features are back" \
+		bash -c "[ \"\$(authselect current --raw)\" = '$BEFORE' ]"
+	check "the custom profile is gone" bash -c '! ls -d /etc/authselect/custom/tuxhello-* 2>/dev/null | grep -q .'
+	expect ok "disabling when off is harmless" "$SETUP" system-wide disable
+	INPUT="$PASSWORD" expect ok "password works after system-wide disable" pt
+fi
+
 echo
 if [ $FAILURES -eq 0 ]; then
 	echo "All pam-setup tests passed."

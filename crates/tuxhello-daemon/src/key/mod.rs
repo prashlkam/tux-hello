@@ -13,6 +13,7 @@
 
 #[cfg(feature = "fido2")]
 pub mod fido2;
+pub mod import;
 #[cfg(any(test, feature = "stub-backend"))]
 pub mod soft;
 
@@ -488,6 +489,59 @@ impl KeyBackend {
     }
 }
 
+impl KeyBackend {
+    /// Imports credentials from a pam_u2f key file (see `import.rs`).
+    /// `origin` is the relying-party id pam_u2f used, `pam://<hostname>`
+    /// unless it was configured otherwise. Returns the ids of the new
+    /// records and a note for every credential that was left out.
+    pub fn import_pam_u2f(
+        &self,
+        uid: u32,
+        user_name: &str,
+        text: &str,
+        origin: &str,
+    ) -> Result<(Vec<String>, Vec<String>), String> {
+        if origin.is_empty() || origin.chars().any(|c| c.is_control()) {
+            return Err(format!("invalid origin {origin:?}"));
+        }
+        let (creds, mut notes) = import::parse_pam_u2f(text, user_name);
+        let mut existing = self.records(uid);
+        let mut imported = Vec::new();
+        for c in creds {
+            let cred_hex = to_hex(&c.credential_id);
+            if existing.iter().any(|(_, r)| r.credential_id == cred_hex) {
+                notes.push(format!("credential {} is already enrolled", c.index));
+                continue;
+            }
+            let id = (1..)
+                .map(|n| format!("u2f-{n}"))
+                .find(|cand| existing.iter().all(|(id, _)| id != cand))
+                .expect("unbounded range");
+            let rec = KeyRecord {
+                version: 1,
+                label: id.clone(),
+                rp_id: origin.to_string(),
+                alg: c.alg,
+                credential_id: cred_hex,
+                public_key: to_hex(&c.public_key),
+                sign_count: 0,
+                created: now(),
+                product: "imported from pam_u2f".into(),
+            };
+            self.save(uid, &id, &rec)?;
+            if c.wants_uv && !self.cfg.require_uv {
+                notes.push(format!(
+                    "{id}: pam_u2f required the key's PIN for this credential; Tux Hello only \
+                     does with [key] require_uv = true"
+                ));
+            }
+            existing.push((id.clone(), rec));
+            imported.push(id);
+        }
+        Ok((imported, notes))
+    }
+}
+
 impl Backend for KeyBackend {
     fn name(&self) -> &'static str {
         METHOD
@@ -538,15 +592,34 @@ impl Backend for KeyBackend {
             }
             progress.emit("touch", "Touch your security key");
 
+            // A credential only answers for the relying-party id it was made
+            // for. Ours all share one, but imported ones (pam_u2f) keep
+            // theirs, so ask once per id. A key that holds none of a group's
+            // credentials says so without waiting for a touch.
+            let mut groups: Vec<(String, Vec<Vec<u8>>)> = Vec::new();
+            for (_, r) in &records {
+                let Some(cred) = r.cred_id_bytes() else {
+                    continue;
+                };
+                match groups.iter_mut().find(|(rp, _)| *rp == r.rp_id) {
+                    Some((_, allow)) => allow.push(cred),
+                    None => groups.push((r.rp_id.clone(), vec![cred])),
+                }
+            }
+            let attempts: Vec<(DeviceInfo, String, Vec<Vec<u8>>)> = devices
+                .into_iter()
+                .flat_map(|dev| {
+                    groups
+                        .iter()
+                        .map(move |(rp, allow)| (dev.clone(), rp.clone(), allow.clone()))
+                })
+                .collect();
+
             let mut outcome = Outcome::Unavailable;
-            for dev in devices {
+            for (dev, rp_id, allow) in attempts {
                 let cancel = Arc::new(CancelToken::default());
                 let mut guard = CancelOnDrop(cancel.clone(), false);
                 let me = self.clone();
-                let allow: Vec<Vec<u8>> = records
-                    .iter()
-                    .filter_map(|(_, r)| r.cred_id_bytes())
-                    .collect();
                 let cdh = random32();
                 let pin2 = pin.clone();
                 let dev2 = dev.clone();
@@ -554,7 +627,7 @@ impl Backend for KeyBackend {
                     me.auth.get_assertion(
                         &dev2,
                         &GetAssertion {
-                            rp_id: &me.cfg.rp_id,
+                            rp_id: &rp_id,
                             client_data_hash: &cdh,
                             allow: &allow,
                             uv: me.cfg.require_uv,
@@ -686,6 +759,96 @@ mod tests {
             &CancelToken::default(),
         )
         .unwrap()
+    }
+
+    /// Runs the backend's `verify` for uid 1000 and returns the outcome.
+    async fn verify_once(backend: Arc<KeyBackend>) -> Outcome {
+        let session = Arc::new(crate::session::Session::new("t".into(), ":1.1".into(), 0));
+        let req = Request {
+            user: "alice".into(),
+            uid: 1000,
+            service: "test".into(),
+        };
+        let progress = Progress::for_request(
+            session,
+            METHOD,
+            crate::guard::tests::test_guard(),
+            &req,
+            false,
+        );
+        backend.verify(req, progress).await
+    }
+
+    fn b64(b: &[u8]) -> String {
+        const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut s = String::new();
+        for chunk in b.chunks(3) {
+            let v = (u32::from(chunk[0]) << 16)
+                | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+                | u32::from(*chunk.get(2).unwrap_or(&0));
+            for i in 0..4 {
+                if i <= chunk.len() {
+                    s.push(T[((v >> (18 - 6 * i)) & 63) as usize] as char);
+                } else {
+                    s.push('=');
+                }
+            }
+        }
+        s
+    }
+
+    /// A key registered by pam_u2f under its own origin keeps working after
+    /// import, next to a key enrolled with Tux Hello's relying-party id.
+    #[tokio::test]
+    async fn imported_pam_u2f_key_authenticates() {
+        let store = crate::guard::tests::temp_store("u2f");
+        let old_key = Arc::new(SoftAuthenticator::in_memory());
+        let cred = enroll(&old_key, "pam://oldhost", COSE_ES256);
+        let line = format!(
+            "alice:{},{},es256,+presence\n",
+            b64(&cred.id),
+            b64(&cred.public_key)
+        );
+
+        let backend = Arc::new(KeyBackend::new(
+            store.clone(),
+            KeyConfig::default(),
+            old_key.clone(),
+        ));
+        // Imported with the wrong origin, the key's answer does not verify.
+        let (ids, notes) = backend
+            .import_pam_u2f(1000, "alice", &line, "pam://wronghost")
+            .unwrap();
+        assert_eq!(ids, vec!["u2f-1".to_string()]);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(verify_once(backend.clone()).await, Outcome::NoMatch);
+        store.delete(1000, METHOD, "u2f-1").unwrap();
+
+        let (ids, _) = backend
+            .import_pam_u2f(1000, "alice", &line, "pam://oldhost")
+            .unwrap();
+        assert_eq!(ids, vec!["u2f-1".to_string()]);
+        assert!(matches!(
+            verify_once(backend.clone()).await,
+            Outcome::Match { .. }
+        ));
+        // Importing the same file again adds nothing.
+        let (ids, notes) = backend
+            .import_pam_u2f(1000, "alice", &line, "pam://oldhost")
+            .unwrap();
+        assert!(ids.is_empty());
+        assert!(notes[0].contains("already enrolled"));
+
+        // A natively enrolled credential on the same key (other RP id) and
+        // the imported one are both usable: each is asked under its own id.
+        let id = backend.enroll(1000, "alice", Some("native"), None).unwrap();
+        assert_eq!(id, "native");
+        store.delete(1000, METHOD, "u2f-1").unwrap();
+        assert!(matches!(
+            verify_once(backend.clone()).await,
+            Outcome::Match { .. }
+        ));
+        let _ = std::fs::remove_dir_all(store.root());
     }
 
     #[test]

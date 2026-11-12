@@ -365,6 +365,19 @@ impl Client {
     }
 
     /// Describes the effective policy for `uid` and a PAM service.
+    /// Imports security keys from the text of a pam_u2f key file (root
+    /// only). Returns the new enrolment ids and notes about skipped entries.
+    pub fn import_pam_u2f(
+        &self,
+        uid: u32,
+        text: &str,
+        origin: &str,
+    ) -> Result<(Vec<String>, Vec<String>), ClientError> {
+        self.manager(CALL_TIMEOUT)
+            .method_call(MANAGER_INTERFACE, "ImportPamU2f", (uid, text, origin))
+            .map_err(map_err)
+    }
+
     /// Lockout state: `biometric-failures`, `biometrics-locked`,
     /// `throttled-s`, `pin-locked-s`.
     pub fn lockout(&self, uid: u32) -> Result<HashMap<String, u64>, ClientError> {

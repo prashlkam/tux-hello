@@ -18,6 +18,8 @@ tuxhello delete pin               # remove your PIN
 tuxhello delete key backup        # remove one key
 tuxhello status                   # daemon, store and methods
 sudo tuxhello unlock              # clear lockouts after too many failed attempts
+sudo tuxhello import pam-u2f      # take over the keys you registered with pam_u2f
+tuxhello doctor                   # check the installation and say how to fix problems
 ```
 
 After 5 wrong fingerprints in a row, biometrics are switched off for that user until a PIN or security-key login succeeds (or `sudo tuxhello unlock`). After 10 failed attempts of any kind within 5 minutes, Tux Hello steps aside for that user until the window passes. In both cases the password keeps working. Every attempt and result is written to the audit log as one JSON line (`journalctl -u tuxhellod | grep audit`). The numbers are in `[limits]` in `/etc/tuxhello/config.toml`; see [ADR 0010](docs/adr/0010-limits-and-audit-log.md).
@@ -33,10 +35,10 @@ sudo tuxhello-pam-setup enable                 # sudo, polkit-1 and installed sc
 sudo tuxhello-pam-setup enable gdm-password    # login screens only when you name them
 sudo tuxhello-pam-setup disable --all          # remove it again
 sudo tuxhello-pam-setup rollback               # restore the previous state from backup
-sudo tuxhello-pam-setup system-wide enable     # Debian/Ubuntu: every service via pam-auth-update
+sudo tuxhello-pam-setup system-wide enable     # every local service: pam-auth-update (Debian/Ubuntu) or authselect (Fedora/RHEL)
 ```
 
-It never touches `sshd` or shared files such as `system-auth` or `common-auth`. Services that only exist in `/usr/lib/pam.d` get an override in `/etc/pam.d`, which `disable` removes again. Keep a root shell open the first time you try it.
+Per-service mode never touches `sshd` or shared files such as `system-auth` or `common-auth`. System-wide mode goes through the distribution's own tool instead: on Fedora it creates the authselect profile `custom/tuxhello-<your profile>` with a `with-tuxhello` feature, and `system-wide disable` selects your original profile and features again. `password-auth`, which `sshd` uses, is left alone. Services that only exist in `/usr/lib/pam.d` get an override in `/etc/pam.d`, which `disable` removes again. Keep a root shell open the first time you try it.
 
 The policy lives in `/etc/tuxhello/policy.d/*.toml`; see `crates/tuxhello-policy/src/lib.rs` for the format and the built-in defaults. `systemctl reload`, or sending SIGHUP to `tuxhellod`, re-reads it.
 
@@ -51,7 +53,7 @@ The policy lives in `/etc/tuxhello/policy.d/*.toml`; see `crates/tuxhello-policy
 | `crates/pam-tuxhello` | `pam_tuxhello.so` |
 | `crates/tuxhello-daemon` | `tuxhellod`, the system daemon (zbus/tokio) |
 | `crates/tuxhello-cli` | The `tuxhello` CLI |
-| `crates/tuxhello-pam-setup` | Safe PAM configuration: enable, disable, rollback, Debian system-wide |
+| `crates/tuxhello-pam-setup` | Safe PAM configuration: enable, disable, rollback, system-wide on Debian and Fedora |
 | `packaging/` | Arch `PKGBUILD`, Debian `debian/`, RPM spec |
 | `data/` | D-Bus policy and activation file, systemd/OpenRC/sysusers/tmpfiles, example config |
 | `tests/integration/` | End-to-end PAM tests (real libpam, real system bus) |

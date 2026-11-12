@@ -176,6 +176,36 @@ impl ManagerService {
         Ok(id)
     }
 
+    /// Imports a user's security keys from the text of a pam_u2f key file.
+    /// `origin` is the relying-party id pam_u2f used (`pam://<hostname>`
+    /// unless configured otherwise). Returns the new enrolment ids and a
+    /// note for each credential that was left out.
+    async fn import_pam_u2f(
+        &self,
+        #[zbus(header)] hdr: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        uid: u32,
+        text: String,
+        origin: String,
+    ) -> Result<(Vec<String>, Vec<String>), Error> {
+        let caller = require_root(conn, &hdr).await?;
+        let name = user_name(uid)?;
+        if text.len() > 256 * 1024 {
+            return Err(Error::InvalidArgs("key file too large".into()));
+        }
+        let backend = self.d.key.clone().ok_or_else(|| {
+            Error::Unavailable("security keys are not supported by this build".into())
+        })?;
+        let (ids, notes) = backend
+            .import_pam_u2f(uid, &name, &text, &origin)
+            .map_err(Error::Failed)?;
+        for id in &ids {
+            log::info!("security key {id:?} imported from pam_u2f for {name:?} (uid {uid}) by uid {caller}");
+            audit_change("enroll", &name, uid, caller, crate::key::METHOD, id);
+        }
+        Ok((ids, notes))
+    }
+
     /// Deletes one enrolment. Returns whether it existed.
     async fn delete_enrollment(
         &self,

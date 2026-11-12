@@ -11,7 +11,13 @@
 //! <dir>/present          the key is "plugged in" while this file exists
 //! <dir>/pin              the key's PIN, if it has one
 //! <dir>/no-touch         simulate a user who never touches the key
-//! <dir>/creds/<hex-id>   "<alg> <secret-key-hex> <counter>"
+//! <dir>/creds/<hex-id>   "<alg> <secret-key-hex> <rp-id> <counter>"
+//! ```
+//!
+//! Like a real key, a credential only answers for the relying-party id it
+//! was made for.
+//!
+//! ```text
 //! ```
 
 use std::collections::HashMap;
@@ -30,6 +36,7 @@ use super::{
 struct Cred {
     alg: i32,
     sk: [u8; 32],
+    rp_id: String,
     counter: u32,
 }
 
@@ -119,7 +126,9 @@ impl SoftAuthenticator {
                     continue;
                 };
                 let mut it = text.split_whitespace();
-                let (Some(alg), Some(sk), Some(counter)) = (it.next(), it.next(), it.next()) else {
+                let (Some(alg), Some(sk), Some(rp_id), Some(counter)) =
+                    (it.next(), it.next(), it.next(), it.next())
+                else {
                     continue;
                 };
                 let (Ok(alg), Some(sk), Ok(counter)) = (alg.parse(), from_hex(sk), counter.parse())
@@ -129,7 +138,15 @@ impl SoftAuthenticator {
                 let Ok(sk) = <[u8; 32]>::try_from(sk) else {
                     continue;
                 };
-                s.creds.insert(id, Cred { alg, sk, counter });
+                s.creds.insert(
+                    id,
+                    Cred {
+                        alg,
+                        sk,
+                        rp_id: rp_id.to_string(),
+                        counter,
+                    },
+                );
             }
         }
         s
@@ -149,7 +166,7 @@ impl SoftAuthenticator {
                 let _ = std::fs::create_dir_all(&d);
                 let _ = std::fs::write(
                     d.join(to_hex(id)),
-                    format!("{} {} {}\n", c.alg, to_hex(&c.sk), c.counter),
+                    format!("{} {} {} {}\n", c.alg, to_hex(&c.sk), c.rp_id, c.counter),
                 );
             }
         }
@@ -216,6 +233,7 @@ impl Authenticator for SoftAuthenticator {
             &Cred {
                 alg,
                 sk,
+                rp_id: req.rp_id.to_string(),
                 counter: 0,
             },
         );
@@ -242,6 +260,7 @@ impl Authenticator for SoftAuthenticator {
             .allow
             .iter()
             .find_map(|id| state.creds.get(id).map(|c| (id.clone(), c.clone())))
+            .filter(|(_, c)| c.rp_id == req.rp_id)
         else {
             return Err(KeyError::NoCredentials);
         };

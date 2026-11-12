@@ -69,6 +69,9 @@ export CARGO_HOME=$PWD/.cargo-home
 if [ $1 -eq 0 ]; then
     %{_sbindir}/tuxhello-pam-setup disable --all ||
         echo "warning: could not remove Tux Hello from /etc/pam.d; check it by hand" >&2
+    # System-wide mode (an authselect profile); does nothing if it is off.
+    %{_sbindir}/tuxhello-pam-setup system-wide disable ||
+        echo "warning: could not switch the authselect profile back; see authselect current" >&2
 fi
 
 %postun
