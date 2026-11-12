@@ -1,7 +1,7 @@
 [package]
 name = "pam-tuxhello"
 description = "PAM module for Tux Hello (pam_tuxhello.so)"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

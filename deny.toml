@@ -9,8 +9,8 @@ yanked = "deny"
 
 [licenses]
 version = 2
-# Everything must be compatible with GPL-3.0-or-later (daemon, CLI) and
-# with the permissively licensed PAM module / client crates.
+# The whole project is GPL-3.0-or-later (ADR 0001), so every dependency
+# must be GPL-3.0 compatible.
 allow = [
     "MIT",
     "Apache-2.0",

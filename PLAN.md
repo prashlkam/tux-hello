@@ -665,7 +665,7 @@ Estimates assume 2–3 core developers. They are indicative and not commitments.
 
 ### Phase 0 — Foundations (≈ 4 weeks)
 - [x] Workspace, Meson wrapper, CI (lint, `cargo-deny`, tests, MSRV, distro containers). *Not yet compiled locally: see "Phase 0 status" below.*
-- [ ] Licence choice. Proposed in [ADR 0001](docs/adr/0001-licensing.md) (MIT/Apache for the PAM module, client and proto crates; GPL-3.0+ for apps); awaiting confirmation. Licence texts still to be added.
+- [x] Licence choice: **GPL-3.0-or-later for the whole project** ([ADR 0001](docs/adr/0001-licensing.md), decided 2026-11-12). The text is in `LICENSE`. *Still to do:* SPDX headers in source files and `reuse lint` in CI.
 - [x] Spike: PAM module (libdbus) ↔ daemon (zbus) with a configurable stub backend, plus an end-to-end test using a bundled `th-pamtest` harness instead of `pamtester` ([ADR 0002](docs/adr/0002-ipc-and-pam-protocol.md), `tests/integration/pam-spike.sh`).
 - [x] Decide on the FIDO2 binding ([ADR 0003](docs/adr/0003-fido2-binding.md)) and the ONNX Runtime distribution strategy ([ADR 0004](docs/adr/0004-onnx-runtime.md)).
 - [ ] Model selection and **licence vetting** for face/voice models (see §17). The checklist and candidates are in [ADR 0005](docs/adr/0005-model-licensing.md); none are verified yet.
@@ -764,7 +764,7 @@ Study, and where possible reuse, these projects:
 
 ## 19. Open questions
 
-1. **Licence:** GPL-3.0 for everything vs. permissive for the PAM module/proto crates? This affects adoption by greeter projects.
+1. ~~**Licence:** GPL-3.0 for everything vs. permissive for the PAM module/proto crates?~~ **Decided 2026-11-12:** GPL-3.0-or-later for everything ([ADR 0001](docs/adr/0001-licensing.md)).
 2. **Project name:** "Tux Hello" may raise trademark questions with "Windows Hello". Consider an alternative brand early (e.g. *Kenbun*, *Visage*, *Penguard*) and run a trademark search.
 3. **Daemon privileges:** dedicated user + device groups (current plan) vs. root with heavy sandboxing. Device groups (`video`, `audio`) vary by distro → needs udev ACL rules.
 4. **Escrow default:** should first login after boot always require the password (safer, simpler), with escrow strictly opt-in? (Current plan: yes.)

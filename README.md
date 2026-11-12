@@ -122,4 +122,4 @@ CI runs this on an Ubuntu runner and in Arch, Debian and Fedora containers (`.gi
 
 ## Licence
 
-The proposal is in [ADR 0001](docs/adr/0001-licensing.md): MIT OR Apache-2.0 for the PAM module, client and protocol crates, and GPL-3.0-or-later for the daemon and applications. It is not final yet.
+Tux Hello is licensed under the GNU General Public License, version 3 or (at your option) any later version (`GPL-3.0-or-later`). The full text is in [LICENSE](LICENSE); the reasoning is in [ADR 0001](docs/adr/0001-licensing.md).
