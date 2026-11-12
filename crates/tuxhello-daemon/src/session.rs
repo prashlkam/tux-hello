@@ -278,7 +278,10 @@ pub async fn run(
 ) {
     let mut t = Tally {
         effective: &effective,
-        nominal: backends.iter().map(|b| (b.name(), b.assurance())).collect(),
+        nominal: backends
+            .iter()
+            .map(|b| (b.name(), b.assurance_for(&req.user, req.uid)))
+            .collect(),
         succeeded: HashMap::new(),
         out: HashSet::new(),
         any_no_match: false,

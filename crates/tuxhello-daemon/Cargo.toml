@@ -11,9 +11,11 @@ name = "tuxhellod"
 path = "src/main.rs"
 
 [features]
-default = ["fido2"]
+default = ["fido2", "tpm"]
 # Real FIDO2/U2F security keys through libfido2.
 fido2 = []
+# TPM 2.0 through tpm2-tss: seals the store's master key and backs the PIN.
+tpm = ["tuxhello-store/tpm"]
 # Test-only backends: the stub (outcome set in the config file) and a software
 # FIDO2 authenticator. Never enable this in distribution packages: with
 # `outcome = "success"` the stub authenticates anyone.

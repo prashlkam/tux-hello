@@ -1,8 +1,14 @@
-//! PIN backend (PLAN.md §5.1), software variant: Argon2id hash in the
-//! encrypted store, plus a persistent exponential-backoff lockout.
+//! PIN backend (PLAN.md §5.1).
 //!
-//! A TPM-backed variant (PIN as the authValue of a sealed object, hardware
-//! dictionary-attack lockout) will implement the same backend.
+//! * **With a TPM:** the PIN is the auth value of a sealed TPM object. Only
+//!   the TPM can tell whether a guess is right, and it limits guesses itself
+//!   (dictionary-attack lockout), so a short PIN is safe even against someone
+//!   who has the disk. Nothing derived from the PIN is stored.
+//! * **Without:** an Argon2id hash in the encrypted store.
+//!
+//! Both sit behind the same persistent exponential-backoff lockout, which
+//! keeps ordinary mistakes from ever reaching the TPM's own, machine-wide
+//! lockout.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,11 +17,13 @@ use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::{Algorithm, Argon2, Params, Version};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use tuxhello_proto::assurance;
 use tuxhello_store::Store;
 use zeroize::Zeroizing;
 
 use crate::backend::{Backend, BoxFuture, Outcome, Progress, Request};
+use crate::config::TpmMode;
 
 pub const METHOD: &str = "pin";
 const RECORD: &str = "default";
@@ -36,6 +44,11 @@ pub struct PinConfig {
     pub allow_alnum: bool,
     #[serde(default = "default_attempts")]
     pub attempts_per_session: u32,
+    /// Back new PINs with the TPM: `auto` when there is one, `require` to
+    /// refuse enrolment without, `off` for Argon2id only. PINs already
+    /// enrolled keep working either way.
+    #[serde(default)]
+    pub tpm: TpmMode,
 }
 
 fn default_min_length() -> usize {
@@ -54,6 +67,7 @@ impl Default for PinConfig {
             min_length: default_min_length(),
             allow_alnum: default_true(),
             attempts_per_session: default_attempts(),
+            tpm: TpmMode::default(),
         }
     }
 }
@@ -104,6 +118,91 @@ pub fn verify_pin(phc: &str, pin: &str) -> bool {
             .is_ok(),
         Err(_) => false,
     }
+}
+
+/// Hardware that can hold a PIN (the TPM; a fake in tests).
+pub trait PinSealer: Send + Sync {
+    /// Makes an object that opens only with `auth`, with wrong guesses
+    /// limited by the hardware. Returns the blob to store.
+    fn seal(&self, auth: &[u8]) -> Result<Vec<u8>, SealError>;
+    /// Checks `auth` against a blob made by [`PinSealer::seal`].
+    fn check(&self, blob: &[u8], auth: &[u8]) -> Result<(), SealError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(feature = "tpm"), allow(dead_code))]
+pub enum SealError {
+    WrongAuth,
+    /// The hardware refuses further guesses for now.
+    LockedOut,
+    Unavailable(String),
+}
+
+/// What is stored for an enrolled PIN.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PinRecord {
+    /// PHC-format Argon2id hash.
+    Argon2(String),
+    /// TPM object whose auth value is derived from the PIN and `salt`.
+    Tpm { salt: [u8; 16], blob: Vec<u8> },
+}
+
+const TPM_PREFIX: &str = "tpm1$";
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn unhex(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return None;
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
+impl PinRecord {
+    pub fn encode(&self) -> String {
+        match self {
+            PinRecord::Argon2(phc) => phc.clone(),
+            PinRecord::Tpm { salt, blob } => format!("{TPM_PREFIX}{}${}", hex(salt), hex(blob)),
+        }
+    }
+
+    pub fn decode(s: &str) -> Option<Self> {
+        if let Some(rest) = s.strip_prefix(TPM_PREFIX) {
+            let (salt, blob) = rest.split_once('$')?;
+            return Some(PinRecord::Tpm {
+                salt: unhex(salt)?.try_into().ok()?,
+                blob: unhex(blob).filter(|b| !b.is_empty())?,
+            });
+        }
+        s.starts_with("$argon2")
+            .then(|| PinRecord::Argon2(s.to_string()))
+    }
+}
+
+/// The TPM auth value for a PIN. The salt keeps equal PINs of different
+/// users from having equal auth values.
+fn tpm_auth(salt: &[u8; 16], pin: &str) -> Zeroizing<Vec<u8>> {
+    let mut h = Sha256::new();
+    h.update(b"tuxhello-pin-v1\0");
+    h.update(salt);
+    h.update(pin.as_bytes());
+    Zeroizing::new(h.finalize().to_vec())
+}
+
+/// Result of checking one PIN.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PinCheck {
+    Right,
+    Wrong,
+    /// The TPM itself refuses guesses for now.
+    HardwareLocked,
+    /// The PIN is TPM-backed and the TPM cannot be used.
+    Unavailable(String),
 }
 
 /// Persistent failure counter.
@@ -159,21 +258,78 @@ fn now() -> u64 {
 pub struct PinBackend {
     store: Arc<Store>,
     cfg: PinConfig,
+    sealer: Option<Arc<dyn PinSealer>>,
 }
 
 impl PinBackend {
-    pub fn new(store: Arc<Store>, cfg: PinConfig) -> Self {
-        PinBackend { store, cfg }
+    /// `sealer` is the TPM, if this machine has a usable one.
+    pub fn new(store: Arc<Store>, cfg: PinConfig, sealer: Option<Arc<dyn PinSealer>>) -> Self {
+        let sealer = if cfg.tpm == TpmMode::Off {
+            None
+        } else {
+            sealer
+        };
+        PinBackend { store, cfg, sealer }
+    }
+
+    /// How a PIN enrolled now would be protected.
+    pub fn protection(&self) -> &'static str {
+        if self.sealer.is_some() {
+            "tpm"
+        } else {
+            "software"
+        }
+    }
+
+    fn new_record(&self, pin: &str) -> Result<PinRecord, String> {
+        match &self.sealer {
+            Some(sealer) => {
+                let mut salt = [0u8; 16];
+                tuxhello_store::random_bytes(&mut salt).map_err(|e| e.to_string())?;
+                let blob = sealer
+                    .seal(&tpm_auth(&salt, pin))
+                    .map_err(|e| format!("the TPM could not store the PIN: {e:?}"))?;
+                Ok(PinRecord::Tpm { salt, blob })
+            }
+            None if self.cfg.tpm == TpmMode::Require => {
+                Err("[pin] tpm = \"require\" but this machine has no usable TPM".to_string())
+            }
+            None => Ok(PinRecord::Argon2(hash_pin(pin)?)),
+        }
     }
 
     /// Sets (or replaces) a user's PIN and clears any lockout.
     pub fn enroll(&self, uid: u32, pin: &str) -> Result<(), String> {
         validate_new_pin(&self.cfg, pin)?;
-        let phc = Zeroizing::new(hash_pin(pin)?);
+        let rec = Zeroizing::new(self.new_record(pin)?.encode());
         self.store
-            .put(uid, METHOD, RECORD, phc.as_bytes())
+            .put(uid, METHOD, RECORD, rec.as_bytes())
             .map_err(|e| e.to_string())?;
         self.save_lockout(uid, Lockout::default())
+    }
+
+    /// Checks one PIN against a record. Blocking (Argon2 or a TPM round trip).
+    pub fn check(&self, rec: &PinRecord, pin: &str) -> PinCheck {
+        match rec {
+            PinRecord::Argon2(phc) => {
+                if verify_pin(phc, pin) {
+                    PinCheck::Right
+                } else {
+                    PinCheck::Wrong
+                }
+            }
+            PinRecord::Tpm { salt, blob } => {
+                let Some(sealer) = &self.sealer else {
+                    return PinCheck::Unavailable("the TPM is not available".into());
+                };
+                match sealer.check(blob, &tpm_auth(salt, pin)) {
+                    Ok(()) => PinCheck::Right,
+                    Err(SealError::WrongAuth) => PinCheck::Wrong,
+                    Err(SealError::LockedOut) => PinCheck::HardwareLocked,
+                    Err(SealError::Unavailable(e)) => PinCheck::Unavailable(e),
+                }
+            }
+        }
     }
 
     pub fn delete(&self, uid: u32) -> Result<bool, String> {
@@ -226,9 +382,13 @@ impl PinBackend {
             .map_err(|e| e.to_string())
     }
 
-    fn load_hash(&self, uid: u32) -> Option<Zeroizing<String>> {
+    fn load_record(&self, uid: u32) -> Option<PinRecord> {
         let bytes = self.store.get(uid, METHOD, RECORD).ok()??;
-        String::from_utf8(bytes.to_vec()).ok().map(Zeroizing::new)
+        let rec = PinRecord::decode(std::str::from_utf8(&bytes).ok()?);
+        if rec.is_none() {
+            log::warn!("uid {uid}: unreadable PIN record");
+        }
+        rec
     }
 }
 
@@ -239,6 +399,15 @@ impl Backend for PinBackend {
 
     fn assurance(&self) -> u32 {
         assurance::MEDIUM
+    }
+
+    /// A TPM-backed PIN is limited by hardware, so it rates one level higher
+    /// (PLAN.md §5).
+    fn assurance_for(&self, _user: &str, uid: u32) -> u32 {
+        match self.load_record(uid) {
+            Some(PinRecord::Tpm { .. }) if self.sealer.is_some() => assurance::HIGH,
+            _ => self.assurance(),
+        }
     }
 
     fn available(&self) -> bool {
@@ -256,9 +425,14 @@ impl Backend for PinBackend {
     fn verify(self: Arc<Self>, req: Request, progress: Progress) -> BoxFuture<Outcome> {
         Box::pin(async move {
             let uid = req.uid;
-            let Some(phc) = self.load_hash(uid) else {
+            let Some(rec) = self.load_record(uid) else {
                 return Outcome::Unavailable;
             };
+            if matches!(rec, PinRecord::Tpm { .. }) && self.sealer.is_none() {
+                log::warn!("uid {uid}: the PIN is TPM-backed but the TPM is not available");
+                return Outcome::Unavailable;
+            }
+            let granted = self.assurance_for(&req.user, uid);
             for attempt in 0..self.cfg.attempts_per_session {
                 let lock = self.load_lockout(uid);
                 let remaining = lock.remaining(now());
@@ -291,17 +465,34 @@ impl Backend for PinBackend {
                     };
                 }
 
-                let phc2 = phc.clone();
-                let ok = tokio::task::spawn_blocking(move || verify_pin(&phc2, &pin))
+                let (me, rec2) = (self.clone(), rec.clone());
+                let checked = tokio::task::spawn_blocking(move || me.check(&rec2, &pin))
                     .await
-                    .unwrap_or(false);
-                if ok {
-                    if lock.failures != 0 {
-                        let _ = self.save_lockout(uid, Lockout::default());
+                    .unwrap_or(PinCheck::Wrong);
+                match checked {
+                    PinCheck::Right => {
+                        if lock.failures != 0 {
+                            let _ = self.save_lockout(uid, Lockout::default());
+                        }
+                        return Outcome::Match { assurance: granted };
                     }
-                    return Outcome::Match {
-                        assurance: self.assurance(),
-                    };
+                    PinCheck::Wrong => {}
+                    PinCheck::HardwareLocked => {
+                        log::warn!("uid {uid}: the TPM is in dictionary-attack lockout");
+                        progress.emit(
+                            "locked",
+                            "The TPM has locked PIN entry after too many wrong attempts; use your password",
+                        );
+                        return if attempt == 0 {
+                            Outcome::Unavailable
+                        } else {
+                            Outcome::NoMatch
+                        };
+                    }
+                    PinCheck::Unavailable(e) => {
+                        log::warn!("uid {uid}: cannot check the PIN with the TPM: {e}");
+                        return Outcome::Unavailable;
+                    }
                 }
                 let lock = lock.after_failure(now());
                 if let Err(e) = self.save_lockout(uid, lock) {
@@ -331,6 +522,140 @@ mod tests {
         assert!(verify_pin(&h, "2468"));
         assert!(!verify_pin(&h, "2469"));
         assert!(!verify_pin("garbage", "2468"));
+    }
+
+    /// Stands in for the TPM: the blob is the auth value itself, and three
+    /// wrong guesses in a row lock it until `unlock`.
+    #[derive(Default)]
+    struct FakeTpm {
+        failures: std::sync::Mutex<u32>,
+        gone: std::sync::atomic::AtomicBool,
+    }
+
+    impl PinSealer for FakeTpm {
+        fn seal(&self, auth: &[u8]) -> Result<Vec<u8>, SealError> {
+            Ok(auth.to_vec())
+        }
+        fn check(&self, blob: &[u8], auth: &[u8]) -> Result<(), SealError> {
+            if self.gone.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(SealError::Unavailable("gone".into()));
+            }
+            let mut f = self.failures.lock().unwrap();
+            if *f >= 3 {
+                return Err(SealError::LockedOut);
+            }
+            if blob == auth {
+                Ok(())
+            } else {
+                *f += 1;
+                Err(SealError::WrongAuth)
+            }
+        }
+    }
+
+    fn backend(tag: &str, mode: TpmMode, tpm: Option<Arc<FakeTpm>>) -> PinBackend {
+        PinBackend::new(
+            crate::guard::tests::temp_store(tag),
+            PinConfig {
+                tpm: mode,
+                ..PinConfig::default()
+            },
+            tpm.map(|t| t as Arc<dyn PinSealer>),
+        )
+    }
+
+    #[test]
+    fn record_encoding() {
+        let tpm = PinRecord::Tpm {
+            salt: [3; 16],
+            blob: vec![1, 2, 0xff],
+        };
+        assert_eq!(tpm.encode(), format!("tpm1${}$0102ff", "03".repeat(16)));
+        assert_eq!(PinRecord::decode(&tpm.encode()), Some(tpm));
+        let soft = PinRecord::Argon2(hash_pin("2468").unwrap());
+        assert_eq!(PinRecord::decode(&soft.encode()), Some(soft));
+        for bad in ["", "garbage", "tpm1$zz$00", "tpm1$0303$00", "tpm1$"] {
+            assert_eq!(PinRecord::decode(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn tpm_backed_pin() {
+        let tpm = Arc::new(FakeTpm::default());
+        let b = backend("pin-tpm", TpmMode::Auto, Some(tpm.clone()));
+        assert_eq!(b.protection(), "tpm");
+        b.enroll(1000, "2468").unwrap();
+        let rec = b.load_record(1000).unwrap();
+        assert!(matches!(rec, PinRecord::Tpm { .. }));
+        assert_eq!(b.assurance_for("alice", 1000), assurance::HIGH);
+        assert_eq!(b.check(&rec, "2468"), PinCheck::Right);
+        assert_eq!(b.check(&rec, "2469"), PinCheck::Wrong);
+        // The hardware's own lockout is reported as such, not as a wrong PIN.
+        assert_eq!(b.check(&rec, "0000"), PinCheck::Wrong);
+        assert_eq!(b.check(&rec, "0001"), PinCheck::Wrong);
+        assert_eq!(b.check(&rec, "2468"), PinCheck::HardwareLocked);
+        // A TPM that went away is "unavailable", never "right".
+        *tpm.failures.lock().unwrap() = 0;
+        tpm.gone.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(matches!(b.check(&rec, "2468"), PinCheck::Unavailable(_)));
+        let _ = std::fs::remove_dir_all(b.store.root());
+    }
+
+    #[test]
+    fn equal_pins_get_different_auth_values() {
+        assert_ne!(tpm_auth(&[1; 16], "2468"), tpm_auth(&[2; 16], "2468"));
+        assert_ne!(tpm_auth(&[1; 16], "2468"), tpm_auth(&[1; 16], "2469"));
+        assert_eq!(tpm_auth(&[1; 16], "2468").len(), 32);
+    }
+
+    #[test]
+    fn software_pin_when_there_is_no_tpm_or_it_is_off() {
+        let b = backend("pin-soft", TpmMode::Auto, None);
+        assert_eq!(b.protection(), "software");
+        b.enroll(1000, "2468").unwrap();
+        let rec = b.load_record(1000).unwrap();
+        assert!(matches!(rec, PinRecord::Argon2(_)));
+        assert_eq!(b.assurance_for("alice", 1000), assurance::MEDIUM);
+        assert_eq!(b.check(&rec, "2468"), PinCheck::Right);
+        assert_eq!(b.check(&rec, "1111"), PinCheck::Wrong);
+        let _ = std::fs::remove_dir_all(b.store.root());
+
+        let off = backend("pin-off", TpmMode::Off, Some(Arc::new(FakeTpm::default())));
+        assert_eq!(off.protection(), "software");
+        off.enroll(1000, "2468").unwrap();
+        assert!(matches!(
+            off.load_record(1000).unwrap(),
+            PinRecord::Argon2(_)
+        ));
+        let _ = std::fs::remove_dir_all(off.store.root());
+    }
+
+    #[test]
+    fn require_refuses_to_enrol_without_a_tpm() {
+        let b = backend("pin-req", TpmMode::Require, None);
+        assert!(b.enroll(1000, "2468").unwrap_err().contains("require"));
+        assert!(b.load_record(1000).is_none());
+        let _ = std::fs::remove_dir_all(b.store.root());
+    }
+
+    #[test]
+    fn tpm_pin_without_its_tpm_is_not_usable() {
+        let store = crate::guard::tests::temp_store("pin-lost");
+        let with = PinBackend::new(
+            store.clone(),
+            PinConfig::default(),
+            Some(Arc::new(FakeTpm::default()) as Arc<dyn PinSealer>),
+        );
+        with.enroll(1000, "2468").unwrap();
+        let without = PinBackend::new(store.clone(), PinConfig::default(), None);
+        let rec = without.load_record(1000).unwrap();
+        assert!(matches!(
+            without.check(&rec, "2468"),
+            PinCheck::Unavailable(_)
+        ));
+        // No hardware limit behind it any more, so no extra assurance.
+        assert_eq!(without.assurance_for("alice", 1000), assurance::MEDIUM);
+        let _ = std::fs::remove_dir_all(store.root());
     }
 
     #[test]

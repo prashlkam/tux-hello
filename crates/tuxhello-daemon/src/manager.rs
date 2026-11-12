@@ -85,6 +85,7 @@ impl ManagerService {
         m.insert("version".into(), env!("CARGO_PKG_VERSION").into());
         m.insert("store".into(), self.d.store.root().display().to_string());
         m.insert("store-key".into(), self.d.store.key_description().into());
+        m.insert("pin-protection".into(), self.d.pin.protection().into());
         m.insert(
             "policy-dirs".into(),
             self.d
@@ -352,7 +353,7 @@ impl ManagerService {
             .filter(|b| e.require.methods().contains(b.name()))
         {
             if b.clone().usable(user.name.clone(), uid).await {
-                usable.push(format!("{}:{}", b.name(), b.assurance()));
+                usable.push(format!("{}:{}", b.name(), b.assurance_for(&user.name, uid)));
             }
         }
         m.insert("usable".into(), usable.join(","));

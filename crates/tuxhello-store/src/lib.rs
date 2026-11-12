@@ -12,7 +12,11 @@
 //! copied to another user or renamed fails to decrypt.
 //!
 //! The master key comes from a [`KeyProvider`]. Phase 1 starts with
-//! [`FileKey`]; a TPM-sealed provider plugs in behind the same trait.
+//! [`FileKey`]; with the `tpm` feature, [`tpm::TpmKey`] seals the key to the
+//! machine's TPM instead (`master.key.tpm`).
+
+#[cfg(feature = "tpm")]
+pub mod tpm;
 
 use std::fmt;
 use std::fs;
@@ -37,6 +41,8 @@ pub enum StoreError {
     Corrupt(PathBuf),
     InvalidName(String),
     Random(String),
+    /// The TPM that seals the master key failed or is missing.
+    Tpm(String),
 }
 
 impl fmt::Display for StoreError {
@@ -46,6 +52,7 @@ impl fmt::Display for StoreError {
             StoreError::Corrupt(p) => write!(f, "{}: corrupted or tampered record", p.display()),
             StoreError::InvalidName(n) => write!(f, "invalid record name {n:?}"),
             StoreError::Random(e) => write!(f, "random number generator failed: {e}"),
+            StoreError::Tpm(e) => write!(f, "TPM-sealed master key: {e}"),
         }
     }
 }

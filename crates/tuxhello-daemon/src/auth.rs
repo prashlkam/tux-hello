@@ -132,8 +132,10 @@ impl AuthService {
                 backends.push(b.clone());
             }
         }
-        let nominal: HashMap<&str, u32> =
-            backends.iter().map(|b| (b.name(), b.assurance())).collect();
+        let nominal: HashMap<&str, u32> = backends
+            .iter()
+            .map(|b| (b.name(), b.assurance_for(&user, target_uid)))
+            .collect();
         if effective.satisfied(&|m| nominal.get(m).copied()).is_none() {
             log::info!(
                 "user {user:?} service {service:?}: enrolled methods {:?} cannot satisfy {} \

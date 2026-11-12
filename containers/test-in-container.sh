@@ -31,6 +31,12 @@ else
 	echo "fprintd or polkitd missing; fingerprint tests will be skipped"
 fi
 
+step "software TPM for the unit tests"
+mkdir -p /tmp/swtpm-unit
+swtpm socket --tpm2 --tpmstate dir=/tmp/swtpm-unit --server type=tcp,port=2321 \
+	--ctrl type=tcp,port=2322 --flags not-need-init,startup-clear >/tmp/swtpm-unit.log 2>&1 &
+export TUXHELLO_TEST_TCTI="swtpm:host=127.0.0.1,port=2321"
+
 step "build (stub backend enabled)"
 cargo build --workspace --features tuxhello-daemon/stub-backend
 

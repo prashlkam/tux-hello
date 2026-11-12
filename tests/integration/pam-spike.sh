@@ -29,8 +29,10 @@ FAILURES=0
 USER_A=thtest
 USER_B=thother
 
+SWTPM_PID=""
 cleanup() {
 	stop_daemon
+	[ -n "$SWTPM_PID" ] && kill "$SWTPM_PID" 2>/dev/null
 	rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -85,8 +87,9 @@ stop_daemon() {
 	fi
 }
 
-base_config() { # store and policy inside $WORK
-	printf '[store]\npath = "%s"\n[policy]\ndirs = ["%s"]\n' "$WORK/store" "$WORK/policy.d"
+base_config() { # store and policy inside $WORK; no TPM (it has its own section)
+	printf '[store]\npath = "%s"\ntpm = "off"\n[pin]\ntpm = "off"\n[policy]\ndirs = ["%s"]\n' \
+		"$WORK/store" "$WORK/policy.d"
 }
 
 stub_config() { # $1 outcome, $2 delay_ms, $3 users (TOML array)
@@ -501,6 +504,101 @@ else
 		{ echo "FAIL  finger still listed"; FAILURES=$((FAILURES + 1)); } ||
 		echo "PASS  finger gone"
 	expect ok 5 "clean up" runuser -u "$USER_A" -- "$CLI" delete --all
+fi
+
+echo "== TPM (swtpm): sealed master key and TPM-backed PIN"
+if ! command -v swtpm >/dev/null || ! command -v tpm2_dictionarylockout >/dev/null; then
+	echo "SKIP  swtpm or tpm2-tools not installed"
+else
+	TPM_PORT=2331
+	TCTI="swtpm:host=127.0.0.1,port=$TPM_PORT"
+	export TPM2TOOLS_TCTI="$TCTI"
+	mkdir -p "$WORK/tpm-state"
+	start_swtpm() {
+		swtpm socket --tpm2 --tpmstate dir="$WORK/tpm-state" \
+			--server type=tcp,port=$TPM_PORT --ctrl type=tcp,port=$((TPM_PORT + 1)) \
+			--flags not-need-init,startup-clear >>"$WORK/swtpm.log" 2>&1 &
+		SWTPM_PID=$!
+		for _ in $(seq 50); do
+			tpm2_getcap properties-fixed >/dev/null 2>&1 && return 0
+			sleep 0.1
+		done
+		echo "swtpm did not come up"; cat "$WORK/swtpm.log"; exit 1
+	}
+	stop_swtpm() { kill "$SWTPM_PID" 2>/dev/null; wait "$SWTPM_PID" 2>/dev/null; SWTPM_PID=""; }
+	TS="$WORK/store-tpm"
+	tpm_config() { # $1 = [store] tpm, $2 = [pin] tpm
+		printf '[tpm]\ntcti = "%s"\n[store]\npath = "%s"\ntpm = "%s"\n[pin]\ntpm = "%s"\n[policy]\ndirs = ["%s"]\n' \
+			"$TCTI" "$TS" "$1" "$2" "$WORK/policy.d"
+	}
+	file_check() { # $1 description, then a test expression
+		local desc=$1
+		shift
+		if [ "$@" ]; then echo "PASS  $desc"; else echo "FAIL  $desc"; ls -la "$TS"; FAILURES=$((FAILURES + 1)); fi
+	}
+	start_swtpm
+
+	# An installation from before the TPM was used: file key, software PIN.
+	start_daemon "$(tpm_config off off)"
+	INPUT=$'4321\n4321' expect ok 10 "software PIN on a file-key store" "$CLI" enroll pin --user "$USER_B"
+	file_check "the master key is a plain file" -f "$TS/master.key"
+
+	start_daemon "$(tpm_config auto auto)"
+	expect ok 5 "auto: status" "$CLI" status
+	out_contains "key: file" "auto leaves an existing file key alone"
+	INPUT=4321 expect ok 10 "the software PIN keeps working" pt tuxhello-test "$USER_B"
+	expect ok 5 "policy" runuser -u "$USER_B" -- "$CLI" policy sudo
+	out_contains "pin:2" "a software PIN has assurance 2"
+
+	start_daemon "$(tpm_config require auto)"
+	expect ok 5 "require: status" "$CLI" status
+	out_contains "key: TPM" "require moves the master key into the TPM"
+	file_check "the plain key file is gone" ! -e "$TS/master.key"
+	file_check "the sealed key exists" -f "$TS/master.key.tpm"
+	INPUT=4321 expect ok 10 "enrolments survive the move" pt tuxhello-test "$USER_B"
+
+	INPUT=$'8520\n8520' expect ok 10 "a PIN enrolled now is TPM-backed" "$CLI" enroll pin --user "$USER_B"
+	expect ok 5 "policy" runuser -u "$USER_B" -- "$CLI" policy sudo
+	out_contains "pin:3" "a TPM-backed PIN has assurance 3"
+	INPUT=8520 expect ok 10 "the TPM-backed PIN authenticates" pt tuxhello-test "$USER_B"
+	INPUT=4321 expect fail 10 "the old PIN is gone" pt tuxhello-test "$USER_B"
+	INPUT=$'1111\n8520' expect ok 10 "wrong, then right" pt tuxhello-test "$USER_B"
+	start_daemon "$(tpm_config auto auto)"
+	INPUT=8520 expect ok 10 "works after a daemon restart (sealed key found, auto)" pt tuxhello-test "$USER_B"
+
+	echo "== TPM dictionary-attack lockout"
+	tpm2_dictionarylockout --setup-parameters --max-tries=2 --recovery-time=86400 \
+		--lockout-recovery-time=0 >/dev/null 2>&1
+	tpm2_dictionarylockout --clear-lockout >/dev/null 2>&1
+	INPUT=$'1111\n2222\n8520' expect fail 15 "two wrong PINs: the TPM itself refuses the right one" pt tuxhello-test "$USER_B"
+	out_contains "TPM has locked" "the hardware lockout is explained"
+	INPUT=8520 expect fail 5 "TPM locked: the PIN is not accepted" pt tuxhello-test "$USER_B"
+	INPUT=8520 expect ok 5 "TPM locked: falls through to the next module" pt tuxhello-test-fallthrough "$USER_B"
+	tpm2_dictionarylockout --clear-lockout >/dev/null 2>&1
+	INPUT=8520 expect ok 10 "the PIN works again once the TPM lockout is cleared" pt tuxhello-test "$USER_B"
+
+	echo "== TPM disappears"
+	stop_swtpm
+	INPUT=8520 expect fail 5 "TPM gone under a running daemon: PIN unavailable" pt tuxhello-test "$USER_B"
+	INPUT=8520 expect ok 5 "...and the next module still runs" pt tuxhello-test-fallthrough "$USER_B"
+	stop_daemon
+	tpm_config auto auto >"$WORK/config.toml"
+	if timeout 10 "$DAEMON" --config "$WORK/config.toml" >"$WORK/out" 2>&1; then
+		echo "FAIL  the daemon started without the TPM that seals its key"
+		FAILURES=$((FAILURES + 1))
+	else
+		echo "PASS  without its TPM the daemon refuses to start"
+	fi
+	out_contains "sealed by a TPM that is not available" "it says why"
+	file_check "it did not replace the sealed key" -f "$TS/master.key.tpm"
+	file_check "it did not create a new file key" ! -e "$TS/master.key"
+	INPUT='' expect ok 5 "daemon down: the next module still runs" pt tuxhello-test-fallthrough "$USER_B"
+	start_swtpm
+	start_daemon "$(tpm_config auto auto)"
+	INPUT=8520 expect ok 10 "TPM back: the PIN works again" pt tuxhello-test "$USER_B"
+	expect ok 5 "clean up" runuser -u "$USER_B" -- "$CLI" delete --all
+	stop_daemon
+	stop_swtpm
 fi
 
 echo

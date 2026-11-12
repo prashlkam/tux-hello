@@ -7,6 +7,28 @@ session_lifetime_s = 120
 max_sessions_per_uid = 4
 max_sessions = 64
 
+[tpm]
+# How tpm2-tss reaches the TPM.
+tcti = "device:/dev/tpmrm0"
+
+[store]
+path = "/var/lib/tuxhello"
+# Seal the master key with the TPM, so a copied disk cannot decrypt the store.
+#   auto     a new store is sealed if there is a TPM; an existing file key stays
+#   require  refuse to run without a TPM; an existing file key is moved into it
+#   off      always a file
+# Once sealed, the store needs this machine's TPM: clearing the TPM means
+# enrolling again (passwords are not affected).
+tpm = "auto"
+
+[pin]
+min_length = 4
+allow_alnum = true
+attempts_per_session = 3
+# Back new PINs with the TPM (hardware-limited guessing, assurance 3):
+# auto | require | off. Set your PIN again to convert an older one.
+tpm = "auto"
+
 [limits]
 # Failed attempts per user, all methods together, allowed within window_s.
 # Past that, Tux Hello is not offered to that user until the window has

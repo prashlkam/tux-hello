@@ -6,7 +6,12 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+# TPM 2.0 sealing through tpm2-tss (links libtss2-esys).
+tpm = ["dep:tss-esapi"]
+
 [dependencies]
 aes-gcm = "0.10"
 getrandom = "0.3"
 zeroize = { version = "1", features = ["derive"] }
+tss-esapi = { version = "7.7", optional = true }

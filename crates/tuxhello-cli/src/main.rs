@@ -182,6 +182,9 @@ fn status(client: &Client) -> Res {
     let get = |k: &str| info.get(k).map(String::as_str).unwrap_or("?");
     println!("tuxhellod {}", get("version"));
     println!("  store       {} (key: {})", get("store"), get("store-key"));
+    if let Some(p) = info.get("pin-protection") {
+        println!("  new PINs    protected by: {p}");
+    }
     println!("  policy dirs {}", get("policy-dirs").replace(':', ", "));
     let backends = client.list_backends().map_err(|e| e.to_string())?;
     println!("methods:");

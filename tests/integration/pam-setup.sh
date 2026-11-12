@@ -63,7 +63,7 @@ echo "using the distribution's real stack ($FAMILY)"
 
 start_daemon() {
 	[ -n "$DAEMON_PID" ] && kill "$DAEMON_PID" 2>/dev/null && wait "$DAEMON_PID" 2>/dev/null
-	printf '[store]\npath = "%s"\n[policy]\ndirs = []\n' "$WORK/store" >"$WORK/config.toml"
+	printf '[store]\npath = "%s"\ntpm = "off"\n[pin]\ntpm = "off"\n[policy]\ndirs = []\n' "$WORK/store" >"$WORK/config.toml"
 	RUST_LOG=info "$DAEMON" --config "$WORK/config.toml" >>"$WORK/daemon.log" 2>&1 &
 	DAEMON_PID=$!
 	for _ in $(seq 50); do

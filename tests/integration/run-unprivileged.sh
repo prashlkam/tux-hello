@@ -91,7 +91,7 @@ done
 start_daemon() { # $1 outcome, $2 delay_ms, $3 users (TOML array)
 	stop_daemon
 	{
-		printf '[store]\npath = "%s"\n[policy]\ndirs = ["%s"]\n' "$WORK/store" "$WORK/policy.d"
+		printf '[store]\npath = "%s"\ntpm = "off"\n[pin]\ntpm = "off"\n[policy]\ndirs = ["%s"]\n' "$WORK/store" "$WORK/policy.d"
 		printf '[stub]\nenabled = true\noutcome = "%s"\ndelay_ms = %s\nusers = %s\n' "$1" "$2" "$3"
 	} >"$WORK/config.toml"
 	RUST_LOG=info "$DAEMON" --config "$WORK/config.toml" >>"$WORK/daemon.log" 2>&1 &

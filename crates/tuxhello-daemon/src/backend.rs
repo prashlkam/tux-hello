@@ -112,6 +112,11 @@ pub trait Backend: Send + Sync {
     fn name(&self) -> &'static str;
     /// Assurance level when this backend reports a match.
     fn assurance(&self) -> u32;
+    /// Assurance for one user, where it depends on how they enrolled (a
+    /// TPM-backed PIN is stronger than a software one).
+    fn assurance_for(&self, _user: &str, _uid: u32) -> u32 {
+        self.assurance()
+    }
     /// Whether the hardware/software this backend needs is present.
     fn available(&self) -> bool;
     /// Interactive backends prompt the user for input. They run one at a

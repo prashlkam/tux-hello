@@ -14,12 +14,14 @@ StateDirectoryMode=0700
 UMask=0077
 
 # Hardening. Device access is an explicit allow-list (PLAN.md §4.2):
-# hidraw for FIDO security keys (group access via 70-tuxhello-fido.rules).
+# hidraw for FIDO security keys (group access via 70-tuxhello-fido.rules),
+# and the TPM through the kernel's resource manager (group tss).
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 DevicePolicy=closed
 DeviceAllow=char-hidraw rw
+DeviceAllow=/dev/tpmrm0 rw
 PrivateNetwork=yes
 PrivateTmp=yes
 ProtectSystem=strict

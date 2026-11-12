@@ -13,6 +13,7 @@ mod pin;
 mod session;
 #[cfg(feature = "stub-backend")]
 mod stub;
+mod tpm;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -21,7 +22,7 @@ use std::sync::Arc;
 use clap::Parser;
 use tokio::signal::unix::{signal, SignalKind};
 use tuxhello_proto::{BUS_NAME, MANAGER_PATH, OBJECT_PATH};
-use tuxhello_store::{FileKey, Store};
+use tuxhello_store::Store;
 
 use crate::backend::Backend;
 use crate::config::Config;
@@ -89,7 +90,8 @@ fn real_keys() -> Option<Arc<dyn Authenticator>> {
 
 async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = Config::load(&args.config)?;
-    let store = Arc::new(Store::open(&cfg.store.path, &FileKey)?);
+    let hardware = tpm::setup(&cfg)?;
+    let store = Arc::new(Store::open(&cfg.store.path, hardware.keys.as_ref())?);
     log::info!(
         "template store {} (key: {})",
         store.root().display(),
@@ -99,7 +101,12 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     audit::init(&cfg.audit)?;
     let guard = Arc::new(guard::Guard::new(cfg.limits.clone(), store.clone()));
 
-    let pin = Arc::new(PinBackend::new(store.clone(), cfg.pin.clone()));
+    let pin = Arc::new(PinBackend::new(
+        store.clone(),
+        cfg.pin.clone(),
+        hardware.pin_sealer,
+    ));
+    log::info!("new PINs are protected by: {}", pin.protection());
     let mut backends: Vec<Arc<dyn Backend>> = vec![pin.clone()];
     let key = soft_key(&cfg)
         .or_else(real_keys)

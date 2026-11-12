@@ -2,7 +2,7 @@
 
 Windows Hello–style sign-in for Linux, with a PIN, face, fingerprint, voice or FIDO2 security key, on any desktop environment and distribution. The design is in [PLAN.md](PLAN.md).
 
-> **Status: Phase 1 in progress.** The PAM module, daemon, policy engine, encrypted store, a **software PIN** and **FIDO2 security keys** and **fingerprints (via fprintd)** work end to end, and `tuxhello-pam-setup` turns them on safely. All of it is tested on Arch, Debian and Fedora against their real PAM stacks. The TPM-backed PIN is next. Not ready for daily use yet.
+> **Status: Phase 1 is implemented; hardware checks remain.** The PAM module, daemon, policy engine, a TPM-sealed encrypted store, a **PIN** (TPM-backed where there is a TPM), **FIDO2 security keys** and **fingerprints (via fprintd)** work end to end, `tuxhello-pam-setup` turns them on safely, and there are packages for Arch, Debian and Fedora. All of it is tested in containers on those three against their real PAM stacks, with a software TPM, a software security key and a virtual fingerprint sensor. A physical security key, a real finger and a physical TPM have not been tried yet, so it is not ready for daily use.
 
 ## Using the CLI
 
@@ -23,6 +23,8 @@ tuxhello doctor                   # check the installation and say how to fix pr
 ```
 
 After 5 wrong fingerprints in a row, biometrics are switched off for that user until a PIN or security-key login succeeds (or `sudo tuxhello unlock`). After 10 failed attempts of any kind within 5 minutes, Tux Hello steps aside for that user until the window passes. In both cases the password keeps working. Every attempt and result is written to the audit log as one JSON line (`journalctl -u tuxhellod | grep audit`). The numbers are in `[limits]` in `/etc/tuxhello/config.toml`; see [ADR 0010](docs/adr/0010-limits-and-audit-log.md).
+
+On a machine with a TPM 2.0, a new store's master key is sealed by the TPM and new PINs are TPM-backed: the TPM itself limits guessing, and a copied disk is useless elsewhere. `tuxhello status` shows which protection is in use; `[store] tpm = "require"` moves an older file key into the TPM. See [ADR 0011](docs/adr/0011-tpm.md), including why the TPM's lockout is shared by the whole machine.
 
 ## Turning it on for sudo, polkit and screen lockers
 
@@ -49,7 +51,7 @@ The policy lives in `/etc/tuxhello/policy.d/*.toml`; see `crates/tuxhello-policy
 | `crates/tuxhello-proto` | Bus names, session states, error names (no dependencies) |
 | `crates/tuxhello-client` | Blocking libdbus client, used by the PAM module and the CLI |
 | `crates/tuxhello-policy` | Policy files: classes, services, groups, users, any/all requirements |
-| `crates/tuxhello-store` | Encrypted per-user record store (AES-256-GCM) |
+| `crates/tuxhello-store` | Encrypted per-user record store (AES-256-GCM), TPM sealing |
 | `crates/pam-tuxhello` | `pam_tuxhello.so` |
 | `crates/tuxhello-daemon` | `tuxhellod`, the system daemon (zbus/tokio) |
 | `crates/tuxhello-cli` | The `tuxhello` CLI |
@@ -62,15 +64,15 @@ The policy lives in `/etc/tuxhello/policy.d/*.toml`; see `crates/tuxhello-policy
 
 ## Building
 
-You need Rust ≥ 1.85, plus the libdbus and libpam development files and `pkg-config`.
+You need Rust ≥ 1.85, plus the libdbus, libpam, libfido2 and tpm2-tss development files and `pkg-config`.
 
 ```sh
 # Arch
-sudo pacman -S --needed rust pkgconf dbus pam libfido2
+sudo pacman -S --needed rust pkgconf dbus pam libfido2 tpm2-tss
 # Debian/Ubuntu
-sudo apt install cargo rustc pkg-config libdbus-1-dev libpam0g-dev libfido2-dev
+sudo apt install cargo rustc pkg-config libdbus-1-dev libpam0g-dev libfido2-dev libtss2-dev
 # Fedora
-sudo dnf install cargo rust pkgconf-pkg-config dbus-devel pam-devel libfido2-devel
+sudo dnf install cargo rust pkgconf-pkg-config dbus-devel pam-devel libfido2-devel tpm2-tss-devel
 
 cargo build --workspace
 cargo test --workspace --all-features

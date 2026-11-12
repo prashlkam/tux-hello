@@ -19,9 +19,12 @@ if pam_moduledir == ''
   pam_moduledir = prefix / get_option('libdir') / 'security'
 endif
 
-# libdbus, libpam and libfido2 are needed at link time by the Rust crates.
+# libdbus, libpam, libfido2 and tpm2-tss are needed at link time by the Rust crates.
 dependency('dbus-1')
 dependency('libfido2', version: '>= 1.13')
+dependency('tss2-esys')
+dependency('tss2-tctildr')
+dependency('tss2-mu')
 # libpam headers are checked by the C toolchain at link time; not every distro ships pam.pc.
 
 profile = get_option('buildtype') == 'debug' ? 'debug' : 'release'

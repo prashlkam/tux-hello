@@ -18,6 +18,7 @@ BuildRequires:  pam-devel
 BuildRequires:  pkgconfig(dbus-1)
 BuildRequires:  pkgconfig(libfido2) >= 1.13
 BuildRequires:  pkgconfig(systemd)
+BuildRequires:  pkgconfig(tss2-esys)
 BuildRequires:  pkgconfig(udev)
 BuildRequires:  systemd-rpm-macros
 

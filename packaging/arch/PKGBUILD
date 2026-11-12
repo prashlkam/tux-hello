@@ -6,7 +6,7 @@ pkgdesc="Sign in with a PIN, security key or fingerprint through PAM"
 arch=('x86_64' 'aarch64')
 url="https://github.com/prashlkam/tux-hello"
 license=('GPL-3.0-or-later')
-depends=('pam' 'dbus' 'libfido2' 'gcc-libs' 'glibc')
+depends=('pam' 'dbus' 'libfido2' 'tpm2-tss' 'gcc-libs' 'glibc')
 makedepends=('cargo' 'meson')
 optdepends=('fprintd: fingerprint readers'
             'polkit: lets the daemon use fprintd')
