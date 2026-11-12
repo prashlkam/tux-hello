@@ -57,6 +57,27 @@ jobs:
       - run: DESTDIR=$PWD/stage meson install -C build
       - run: find stage -type f | sort
 
+  # Distribution packages: built offline from the vendored release tarball,
+  # installed, used for a PAM login, removed again (scripts/podman-package.sh).
+  package:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [arch, debian, fedora]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: scripts/podman-package.sh ${{ matrix.distro }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.distro }}
+          path: |
+            dist/*.pkg.tar.zst
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.xz
+
   # End-to-end PAM tests without root: private bus + pam_start_confdir().
   integration-unprivileged:
     runs-on: ubuntu-24.04

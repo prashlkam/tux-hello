@@ -1,6 +1,7 @@
-# Development/test image: Arch Linux with every Phase 1 build and test dependency.
+# Development/test image: Arch Linux with every Phase 1 build, test and packaging dependency.
 FROM docker.io/library/archlinux:latest
 RUN pacman -Syu --noconfirm --needed \
         rust gcc pkgconf pam dbus util-linux shadow \
         libfido2 tpm2-tss tpm2-tools swtpm fprintd polkit \
+        base-devel meson \
     && pacman -Scc --noconfirm

@@ -1,0 +1,29 @@
+# Maintainer: Tux Hello maintainers <maintainers@tuxhello.invalid>
+pkgname=tuxhello
+pkgver=0.0.1
+pkgrel=1
+pkgdesc="Sign in with a PIN, security key or fingerprint through PAM"
+arch=('x86_64' 'aarch64')
+url="https://github.com/prashlkam/tux-hello"
+license=('GPL-3.0-or-later')
+depends=('pam' 'dbus' 'libfido2' 'gcc-libs' 'glibc')
+makedepends=('cargo' 'meson')
+optdepends=('fprintd: fingerprint readers'
+            'polkit: lets the daemon use fprintd')
+install=tuxhello.install
+# The release tarball carries its crates in vendor/, so the build is offline.
+source=("$url/releases/download/v$pkgver/tux-hello-$pkgver.tar.xz")
+sha256sums=('SKIP') # set with updpkgsums once the release exists
+
+build() {
+	arch-meson "tux-hello-$pkgver" build -Dsystemd=enabled
+	meson compile -C build
+}
+
+check() {
+	meson test -C build --print-errorlogs
+}
+
+package() {
+	meson install -C build --destdir "$pkgdir" --no-rebuild
+}

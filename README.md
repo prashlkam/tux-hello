@@ -49,6 +49,7 @@ The policy lives in `/etc/tuxhello/policy.d/*.toml`; see `crates/tuxhello-policy
 | `crates/tuxhello-daemon` | `tuxhellod`, the system daemon (zbus/tokio) |
 | `crates/tuxhello-cli` | The `tuxhello` CLI |
 | `crates/tuxhello-pam-setup` | Safe PAM configuration: enable, disable, rollback, Debian system-wide |
+| `packaging/` | Arch `PKGBUILD`, Debian `debian/`, RPM spec |
 | `data/` | D-Bus policy and activation file, systemd/OpenRC/sysusers/tmpfiles, example config |
 | `tests/integration/` | End-to-end PAM tests (real libpam, real system bus) |
 | `docs/adr/` | Architecture decision records |
@@ -78,6 +79,21 @@ meson compile -C build
 DESTDIR=$PWD/stage meson install -C build
 ```
 
+## Packages
+
+`packaging/` has an Arch `PKGBUILD`, a Debian `debian/` directory and an RPM spec. All three build from the release tarball that `scripts/dist.sh` makes, which carries every crate in `vendor/`, so the builds need no network.
+
+```sh
+scripts/dist.sh                       # dist/tux-hello-<version>.tar.xz
+scripts/podman-package.sh all         # build, install, test and remove on arch, debian and fedora
+```
+
+`podman-package.sh` builds each package in a container with the network switched off, installs it, lets D-Bus start the daemon, enrols a PIN, logs in through PAM with the installed module, and then removes the package with Tux Hello still enabled. Removal must leave the PAM files exactly as they were. The packages land in `dist/`.
+
+Removing a package always takes Tux Hello out of `/etc/pam.d` first. Enrolled data in `/var/lib/tuxhello` is kept (on Debian, `apt purge` deletes it).
+
+Nothing is published yet: there is no AUR entry, PPA or COPR, and the maintainer address in the packaging files is a placeholder.
+
 ## Trying it without root (session bus)
 
 ```sh
@@ -98,7 +114,7 @@ scripts/podman-test.sh fedora --shell # interactive shell with the source at /sr
 scripts/podman-test.sh debian --rebuild
 ```
 
-The images (`containers/Containerfile.*`) already include libfido2, tpm2-tss and swtpm for Phase 1. Cargo caches live in podman volumes named `tuxhello-*`.
+The images (`containers/Containerfile.*`) include libfido2, tpm2-tss, swtpm and each distro's packaging tools. Cargo caches live in podman volumes named `tuxhello-*`.
 
 ## End-to-end PAM test without root
 

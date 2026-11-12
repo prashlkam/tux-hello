@@ -15,7 +15,7 @@ members = [
 version = "0.0.1"
 edition = "2021"
 rust-version = "1.85"
-repository = "https://example.invalid/tux-hello" # TODO: set once hosted
+repository = "https://github.com/prashlkam/tux-hello"
 authors = ["Tux Hello contributors"]
 
 [workspace.dependencies]

@@ -1,0 +1,19 @@
+post_install() {
+	echo "Tux Hello is installed but not used by anything yet."
+	echo "  sudo tuxhello enroll pin               # or: enroll key, enroll fingerprint"
+	echo "  sudo tuxhello-pam-setup enable --dry-run"
+	echo "  sudo tuxhello-pam-setup enable         # sudo, polkit and screen lockers"
+	echo "Your password keeps working everywhere."
+}
+
+# Take our lines out of /etc/pam.d while the tool that knows how is still
+# installed. Not run on upgrades.
+pre_remove() {
+	tuxhello-pam-setup disable --all ||
+		echo "warning: could not remove Tux Hello from /etc/pam.d; check it by hand" >&2
+}
+
+post_remove() {
+	echo "Enrolled PINs, keys and PAM backups are kept in /var/lib/tuxhello."
+	echo "Delete that directory if you no longer need them."
+}

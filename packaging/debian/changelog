@@ -1,0 +1,5 @@
+tuxhello (0.0.1-1) unstable; urgency=medium
+
+  * Initial package: PIN, FIDO2 security key and fingerprint (fprintd).
+
+ -- Tux Hello maintainers <maintainers@tuxhello.invalid>  Thu, 12 Nov 2026 12:00:00 +0000

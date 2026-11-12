@@ -108,10 +108,11 @@ install_data('data/config.toml',
   rename: 'config.toml.example')
 
 test('cargo-test', cargo,
-  args: ['test', '--workspace', '--manifest-path',
+  args: ['test', '--locked', '--workspace', '--manifest-path',
          meson.project_source_root() / 'Cargo.toml',
          '--target-dir', meson.current_build_dir() / 'cargo-target'],
-  timeout: 600,
+  workdir: meson.project_source_root(),
+  timeout: 1800,
 )
 
 summary({

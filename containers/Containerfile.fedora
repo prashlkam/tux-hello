@@ -1,7 +1,8 @@
-# Development/test image: Fedora with every Phase 1 build and test dependency.
+# Development/test image: Fedora with every Phase 1 build, test and packaging dependency.
 FROM registry.fedoraproject.org/fedora:latest
 RUN dnf install -y \
         cargo rust gcc pkgconf-pkg-config pam-devel dbus-devel \
         dbus-daemon dbus-tools util-linux shadow-utils \
         libfido2-devel tpm2-tss-devel tpm2-tools swtpm swtpm-tools fprintd polkit \
+        rpm-build meson systemd-devel systemd-rpm-macros xz \
     && dnf clean all

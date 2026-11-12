@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+# The release tarball carries its crates in vendor/ and a .cargo/config.toml
+# that makes cargo use them offline; all we add is a private CARGO_HOME.
+export CARGO_HOME = $(CURDIR)/debian/cargo-home
+
+# installsysusers creates the tuxhello account in postinst, before the
+# tmpfiles.d entry that needs it. (Not in the default sequence at compat 13.)
+%:
+	dh $@ --buildsystem=meson --with installsysusers
+
+override_dh_auto_configure:
+	dh_auto_configure -- -Dsystemd=enabled
+
+execute_after_dh_auto_clean:
+	rm -rf debian/cargo-home
+
+# dh_clean deletes *.orig, but cargo checks the vendored crates' checksums,
+# and those cover each crate's Cargo.toml.orig.
+override_dh_clean:
+	dh_clean -X.orig

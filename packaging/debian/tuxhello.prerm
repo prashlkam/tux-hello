@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+# Take Tux Hello out of PAM while the tool that knows how is still installed.
+# Only on removal: upgrades keep the configuration.
+if [ "$1" = remove ]; then
+	tuxhello-pam-setup disable --all ||
+		echo "warning: could not remove Tux Hello from /etc/pam.d; check it by hand" >&2
+	# System-wide mode (tuxhello-pam-setup system-wide enable) writes this
+	# profile; --remove takes it out of common-auth.
+	if [ -e /usr/share/pam-configs/tuxhello ]; then
+		pam-auth-update --package --remove tuxhello
+		rm -f /usr/share/pam-configs/tuxhello
+	fi
+fi
+
+#DEBHELPER#

@@ -1,0 +1,37 @@
+Source: tuxhello
+Section: admin
+Priority: optional
+Maintainer: Tux Hello maintainers <maintainers@tuxhello.invalid>
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo,
+ rustc (>= 1.85),
+ meson (>= 0.62),
+ pkgconf,
+ libdbus-1-dev,
+ libfido2-dev (>= 1.13),
+ libpam0g-dev,
+ systemd-dev,
+Standards-Version: 4.7.2
+Homepage: https://github.com/prashlkam/tux-hello
+Rules-Requires-Root: no
+
+Package: tuxhello
+Architecture: linux-any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ default-dbus-system-bus | dbus-system-bus,
+ libpam-runtime,
+Recommends:
+ fprintd,
+ polkitd,
+Description: sign in with a PIN, security key or fingerprint through PAM
+ Tux Hello adds Windows Hello-style sign-in to any desktop environment: a
+ PIN, a FIDO2 security key or a fingerprint can stand in for the password
+ in sudo, polkit prompts and screen lockers. The password always remains
+ available as the fallback.
+ .
+ This package contains the PAM module (pam_tuxhello.so), the tuxhellod
+ system daemon, the tuxhello command-line tool and tuxhello-pam-setup, which
+ edits the PAM configuration safely and can undo every change.

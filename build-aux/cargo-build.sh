@@ -12,7 +12,11 @@ out_dir=$4
 profile=$5
 features=$6
 
-set -- build --manifest-path "$src/Cargo.toml" --target-dir "$target_dir" --workspace
+# cargo reads .cargo/config.toml relative to the working directory. Release
+# tarballs carry one that points at the vendored crates (scripts/dist.sh).
+cd "$src"
+
+set -- build --locked --manifest-path "$src/Cargo.toml" --target-dir "$target_dir" --workspace
 if [ "$profile" = release ]; then
 	set -- "$@" --release
 fi
