@@ -506,6 +506,32 @@ else
 	expect ok 5 "clean up" runuser -u "$USER_A" -- "$CLI" delete --all
 fi
 
+echo "== lock-out safety: damaged store"
+LS="$WORK/store-damaged"
+damaged_config() {
+	printf '[store]\npath = "%s"\ntpm = "off"\n[pin]\ntpm = "off"\n[policy]\ndirs = ["%s"]\n' "$LS" "$WORK/policy.d"
+}
+start_daemon "$(damaged_config)"
+INPUT=$'2468\n2468' expect ok 10 "enroll a PIN in a fresh store" "$CLI" enroll pin --user "$USER_B"
+INPUT=2468 expect ok 10 "it works" pt tuxhello-test "$USER_B"
+printf 'garbage' >"$(find "$LS/users" -path '*/pin/default.rec')"
+INPUT=2468 expect fail 5 "damaged PIN record: the PIN is not accepted" pt tuxhello-test "$USER_B"
+INPUT=2468 expect ok 5 "damaged PIN record: the next module still runs" pt tuxhello-test-fallthrough "$USER_B"
+expect ok 5 "the daemon survives a damaged record" "$CLI" status
+stop_daemon
+printf 'short' >"$LS/master.key"
+damaged_config >"$WORK/config.toml"
+if timeout 10 "$DAEMON" --config "$WORK/config.toml" >"$WORK/out" 2>&1; then
+	echo "FAIL  the daemon started with a damaged master key"
+	FAILURES=$((FAILURES + 1))
+else
+	echo "PASS  damaged master key: the daemon refuses to start"
+fi
+[ "$(cat "$LS/master.key")" = short ] &&
+	echo "PASS  it did not overwrite the damaged key" ||
+	{ echo "FAIL  the damaged key was replaced"; FAILURES=$((FAILURES + 1)); }
+INPUT='' expect ok 5 "damaged master key: the next module still runs" pt tuxhello-test-fallthrough "$USER_B"
+
 echo "== TPM (swtpm): sealed master key and TPM-backed PIN"
 if ! command -v swtpm >/dev/null || ! command -v tpm2_dictionarylockout >/dev/null; then
 	echo "SKIP  swtpm or tpm2-tools not installed"
