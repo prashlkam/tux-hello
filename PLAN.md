@@ -690,11 +690,12 @@ Estimates assume 2–3 core developers. They are indicative and not commitments.
 
 **Re-run (2026-11-14, at `d62366f`):** all green. On the host, 128 unit tests (`cargo test --workspace --all-features`) and `run-unprivileged.sh` pass. `scripts/podman-test.sh all` passes on Arch, Debian and Fedora: unit tests, the unprivileged and root integration tests (security key, fingerprint, TPM via `swtpm`, biometric lockout, lock-out safety with a damaged store) and the `tuxhello-pam-setup` tests, including `pam-auth-update` on Debian and authselect on Fedora. No failures and no skips. `scripts/podman-package.sh all` also passes: the three packages build offline, install, enrol a PIN, log in through PAM, fall through to the password, and uninstall with the PAM files restored byte for byte.
 
+**CI (2026-11-14, run 43560191156 at `de2351c`):** all 14 jobs green, the first green run since 2026-11-10: `lint`, `test`, `msrv` (1.85), `deny`, `reuse`, `meson`, `integration-unprivileged`, `integration-host`, `integration-distro` and `package` on Arch, Debian and Fedora. Getting there took four fixes: test code that dropped an `ExitCode` (rejected by newer stable rustc), `publish = false` for the workspace crates (cargo-deny wildcard check), copies of the CLI in `pam-spike.sh` (test users cannot enter `/home/runner`), and four advisory ignores in `deny.toml`. The ignores are RUSTSEC-2026-0370/0371/0372 (`zvariant` and friends unmaintained; the successor, zbus 6, needs rustc 1.89) and RUSTSEC-2026-0387 (`crypto-bigint` timing; `p256` only verifies signatures over public data, and every fixed release needs rustc 1.87). Both stay until the MSRV moves past 1.85; `deny.toml` records the reasons and removal conditions.
+
 What the containers cannot show is still open, and it is what the exit criteria ask for:
 
 - a **physical security key**, a **real finger** on a real reader, and a **physical TPM** (everything so far used a software authenticator, libfprint's virtual sensor and `swtpm`);
 - a run on real **GNOME, KDE and Sway** sessions (`sudo`, polkit and the lock screen);
-- CI itself: the workflow has not run since the packaging and TPM jobs were added;
 - publishing the packages (AUR, PPA, COPR), which needs a tagged release and a maintainer address.
 
 **Exit criteria:** daily-drivable for `sudo`, polkit, and the lock screen on GNOME, KDE, and Sway; the lock-out safety suite is green.
