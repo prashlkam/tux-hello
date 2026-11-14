@@ -21,6 +21,9 @@ edition = "2021"
 rust-version = "1.85"
 repository = "https://github.com/prashlkam/tux-hello"
 authors = ["Tux Hello contributors"]
+# Nothing here goes to crates.io; this also lets cargo-deny accept the
+# internal path dependencies (allow-wildcard-paths).
+publish = false
 
 [workspace.dependencies]
 tuxhello-proto = { path = "crates/tuxhello-proto" }

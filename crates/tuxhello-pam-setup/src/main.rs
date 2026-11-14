@@ -828,7 +828,7 @@ mod tests {
         r.write("etc/pam.d/sshd", "auth include system-remote-login\n");
         let env = r.env();
 
-        enable(&env, vec![], false, false).unwrap();
+        let _ = enable(&env, vec![], false, false).unwrap();
         assert!(pamfile::has_block(&r.read("etc/pam.d/sudo")));
         assert!(pamfile::has_block(&r.read("etc/pam.d/swaylock")));
         assert!(
@@ -845,12 +845,12 @@ mod tests {
 
         // Enabling again changes nothing and needs no new backup.
         let before = list_backups(&env).len();
-        enable(&env, vec![], false, false).unwrap();
+        let _ = enable(&env, vec![], false, false).unwrap();
         assert_eq!(list_backups(&env).len(), before);
 
-        disable(&env, vec!["swaylock".into()], false, false).unwrap();
+        let _ = disable(&env, vec!["swaylock".into()], false, false).unwrap();
         assert_eq!(r.read("etc/pam.d/swaylock"), "auth include login\n");
-        disable(&env, vec![], true, false).unwrap();
+        let _ = disable(&env, vec![], true, false).unwrap();
         assert_eq!(r.read("etc/pam.d/sudo"), SUDO);
     }
 
@@ -859,9 +859,9 @@ mod tests {
         let r = Root::new();
         r.write("etc/pam.d/sudo", SUDO);
         let env = r.env();
-        enable(&env, vec!["sudo".into()], false, false).unwrap();
+        let _ = enable(&env, vec!["sudo".into()], false, false).unwrap();
         assert_ne!(r.read("etc/pam.d/sudo"), SUDO);
-        rollback(&env, None, false).unwrap();
+        let _ = rollback(&env, None, false).unwrap();
         assert_eq!(r.read("etc/pam.d/sudo"), SUDO);
     }
 
@@ -870,14 +870,14 @@ mod tests {
         let r = Root::new();
         r.write("usr/lib/pam.d/polkit-1", SUDO);
         let env = r.env();
-        enable(&env, vec!["polkit-1".into()], false, false).unwrap();
+        let _ = enable(&env, vec!["polkit-1".into()], false, false).unwrap();
         assert!(pamfile::has_block(&r.read("etc/pam.d/polkit-1")));
         assert_eq!(
             r.read("usr/lib/pam.d/polkit-1"),
             SUDO,
             "vendor file untouched"
         );
-        rollback(&env, None, false).unwrap();
+        let _ = rollback(&env, None, false).unwrap();
         assert!(!r.0.join("etc/pam.d/polkit-1").exists());
     }
 
@@ -886,13 +886,13 @@ mod tests {
         let r = Root::new();
         r.write("usr/lib/pam.d/kde", SUDO);
         let env = r.env();
-        enable(&env, vec!["kde".into()], false, false).unwrap();
-        disable(&env, vec!["kde".into()], false, false).unwrap();
+        let _ = enable(&env, vec!["kde".into()], false, false).unwrap();
+        let _ = disable(&env, vec!["kde".into()], false, false).unwrap();
         assert!(!r.0.join("etc/pam.d/kde").exists());
         // But a pre-existing, admin-modified override is kept.
         r.write("etc/pam.d/kde", "# local change\nauth include login\n");
-        enable(&env, vec!["kde".into()], false, false).unwrap();
-        disable(&env, vec!["kde".into()], false, false).unwrap();
+        let _ = enable(&env, vec!["kde".into()], false, false).unwrap();
+        let _ = disable(&env, vec!["kde".into()], false, false).unwrap();
         assert_eq!(
             r.read("etc/pam.d/kde"),
             "# local change\nauth include login\n"
@@ -904,7 +904,7 @@ mod tests {
         let r = Root::new();
         r.write("etc/pam.d/sudo", SUDO);
         let env = r.env();
-        enable(&env, vec!["sudo".into()], true, false).unwrap();
+        let _ = enable(&env, vec!["sudo".into()], true, false).unwrap();
         assert_eq!(r.read("etc/pam.d/sudo"), SUDO);
         assert!(list_backups(&env).is_empty());
     }

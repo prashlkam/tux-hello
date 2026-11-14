@@ -10,6 +10,26 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Every ignore needs a reason and a condition for removing it.
+ignore = [
+    # zvariant, zvariant_derive and zbus_names were folded into zbus 6.0 and
+    # are now flagged "unmaintained" (informational, no vulnerability). zbus 6
+    # needs rustc 1.89 and our MSRV is 1.85 (Debian 13), so we stay on zbus 5.
+    # Remove these and move to zbus 6 when the MSRV reaches 1.89.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6, which needs rustc 1.89 > MSRV 1.85" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6, which needs rustc 1.89 > MSRV 1.85" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6, which needs rustc 1.89 > MSRV 1.85" },
+    # crypto-bigint < 0.7.6 has timing side channels in operations meant to be
+    # constant-time. We reach it only through p256 0.13, and the shipped daemon
+    # uses p256 solely to VERIFY security-key signatures (key/mod.rs,
+    # verify_signature): public key, signed data and signature are all public,
+    # so there is no secret for a timing channel to leak. Signing happens only
+    # in the test authenticator (key/soft.rs, cfg(test)/stub-backend). Every
+    # fixed release needs ctutils >= 0.4.5, i.e. rustc 1.87 > MSRV 1.85.
+    # Remove this and move to p256 0.14 when the MSRV reaches 1.87, or at once
+    # if p256 is ever used with a secret key outside tests.
+    { id = "RUSTSEC-2026-0387", reason = "p256 used only to verify signatures over public data; the fix needs rustc 1.87 > MSRV 1.85" },
+]
 
 [licenses]
 version = 2

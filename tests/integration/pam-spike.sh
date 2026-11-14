@@ -57,6 +57,13 @@ dbus-send --system --type=method_call --print-reply --dest=org.freedesktop.DBus 
 chmod 0755 "$WORK"
 cc -O1 -o "$WORK/th-pamtest" "$HERE/th-pamtest.c" -lpam -lpam_misc || exit 2
 PAMTEST="$WORK/th-pamtest"
+# The test users run the CLI too. Its build directory may sit under a home
+# they cannot enter (e.g. /home/runner on GitHub runners), so run a copy.
+# doctor looks for tuxhello-pam-setup next to it (see doctor() below).
+install -m 0755 "$CLI" "$WORK/tuxhello"
+[ -x "$(dirname "$CLI")/tuxhello-pam-setup" ] &&
+	install -m 0755 "$(dirname "$CLI")/tuxhello-pam-setup" "$WORK/tuxhello-pam-setup"
+CLI="$WORK/tuxhello"
 
 mkdir -p "$WORK/policy.d"
 
