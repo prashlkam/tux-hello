@@ -688,7 +688,7 @@ Estimates assume 2–3 core developers. They are indicative and not commitments.
 
 **Phase 1 status (2026-11-12):** every item above is implemented and green in the container suite on Arch, Debian (rustc 1.85, the MSRV) and Fedora, against each distro's real PAM stack, and the three packages build offline, install, authenticate and uninstall cleanly.
 
-**Re-run (2026-11-14, at `d62366f`):** all green. On the host, 128 unit tests (`cargo test --workspace --all-features`) and `run-unprivileged.sh` pass. `scripts/podman-test.sh all` passes on Arch, Debian and Fedora: unit tests, the unprivileged and root integration tests (security key, fingerprint, TPM via `swtpm`, biometric lockout, lock-out safety with a damaged store) and the `tuxhello-pam-setup` tests, including `pam-auth-update` on Debian and authselect on Fedora. No failures and no skips. `scripts/podman-package.sh` was not re-run.
+**Re-run (2026-11-14, at `d62366f`):** all green. On the host, 128 unit tests (`cargo test --workspace --all-features`) and `run-unprivileged.sh` pass. `scripts/podman-test.sh all` passes on Arch, Debian and Fedora: unit tests, the unprivileged and root integration tests (security key, fingerprint, TPM via `swtpm`, biometric lockout, lock-out safety with a damaged store) and the `tuxhello-pam-setup` tests, including `pam-auth-update` on Debian and authselect on Fedora. No failures and no skips. `scripts/podman-package.sh all` also passes: the three packages build offline, install, enrol a PIN, log in through PAM, fall through to the password, and uninstall with the PAM files restored byte for byte.
 
 What the containers cannot show is still open, and it is what the exit criteria ask for:
 
