@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # End-to-end test of tuxhello-pam-setup against the distribution's REAL PAM
 # stack (system-auth / common-auth with pam_unix), including the real password
 # fallback.

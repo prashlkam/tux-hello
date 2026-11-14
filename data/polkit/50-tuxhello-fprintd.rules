@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Tux Hello contributors
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 // Let tuxhellod (system user "tuxhello", which has no login session) use
 // fprintd on behalf of the user who is authenticating:
 //   verify       - match a finger

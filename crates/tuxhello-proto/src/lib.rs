@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Wire-level constants shared by the daemon, the PAM module and clients.
 //!
 //! This crate is intentionally dependency-free so that it can be linked into

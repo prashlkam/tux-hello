@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Authentication sessions: event queues, secret prompts, and the policy-driven
 //! orchestration of backends.
 

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 [package]
 name = "tuxhello-client"
 description = "Small blocking client for the Tux Hello daemon (used by the PAM module and the CLI)"

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Structured audit log (PLAN.md §10.2).
 //!
 //! One JSON object per line: who, which service, which method, the result

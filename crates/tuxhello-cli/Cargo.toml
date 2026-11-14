@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 [package]
 name = "tuxhello-cli"
 description = "Command-line tool for Tux Hello"

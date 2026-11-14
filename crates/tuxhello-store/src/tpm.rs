@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! TPM 2.0 sealing (PLAN.md §5.1 and §7.2), through tpm2-tss (`tss-esapi`).
 //!
 //! Two things are sealed, both as data objects under a storage key that is

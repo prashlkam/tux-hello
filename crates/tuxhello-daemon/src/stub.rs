@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Test-only backend with a configured outcome. Compiled only with the
 //! `stub-backend` feature.
 

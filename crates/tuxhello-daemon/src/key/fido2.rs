@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Real security keys through libfido2 (hand-written bindings for the ~35
 //! functions we use; values from <fido.h> 1.13+).
 //!

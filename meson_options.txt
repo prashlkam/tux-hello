@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 option('pam_moduledir', type: 'string', value: '',
        description: 'Directory for PAM modules (default: <libdir>/security)')
 option('systemd', type: 'feature', value: 'auto',

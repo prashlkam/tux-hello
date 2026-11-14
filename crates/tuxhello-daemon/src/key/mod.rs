@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! FIDO2 security-key backend (PLAN.md §5.5).
 //!
 //! The device conversation goes through an [`Authenticator`]: libfido2 for

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Blocking client for `org.tuxhello.Auth1`.
 //!
 //! Built on libdbus (`dbus` crate) rather than zbus because this code runs

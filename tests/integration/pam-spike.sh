@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Phase 0 end-to-end test: real libpam + real system bus + tuxhellod (stub).
 # Needs: cc, libpam headers, dbus-send, runuser, useradd, a running system bus.
 #

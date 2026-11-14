@@ -1,4 +1,9 @@
 #!/usr/bin/make -f
+
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # The release tarball carries its crates in vendor/ and a .cargo/config.toml
 # that makes cargo use them offline; all we add is a private CARGO_HOME.
 export CARGO_HOME = $(CURDIR)/debian/cargo-home

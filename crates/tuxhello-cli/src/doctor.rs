@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! `tuxhello doctor`: checks the installation from the outside in and says
 //! what to do about each problem. Works (and is most useful) when the daemon
 //! cannot be reached.

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Let tuxhellod (running as the "tuxhello" user/group) open FIDO security
 # keys. systemd's 60-fido-id.rules sets ID_FIDO_TOKEN=1 on every hidraw node
 # that speaks the FIDO protocol, whatever the vendor. The logged-in user keeps

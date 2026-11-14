@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Encrypted per-user record store (PLAN.md §7).
 //!
 //! Layout under the root (default `/var/lib/tuxhello`, mode 0700):

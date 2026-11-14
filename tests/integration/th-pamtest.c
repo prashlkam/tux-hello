@@ -1,4 +1,10 @@
 /*
+ * SPDX-FileCopyrightText: 2026 Tux Hello contributors
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/*
  * th-pamtest: minimal pamtester replacement so the integration tests do not
  * depend on pamtester (which some distributions, e.g. Arch, don't package).
  *

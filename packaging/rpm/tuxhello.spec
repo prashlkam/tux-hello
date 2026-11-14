@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 Name:           tuxhello
 Version:        0.0.1
 Release:        1%{?dist}

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Maintainer: Tux Hello maintainers <maintainers@tuxhello.invalid>
 pkgname=tuxhello
 pkgver=0.0.1

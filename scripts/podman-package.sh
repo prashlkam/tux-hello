@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Build and test the distribution packages with podman (rootless is fine).
 #
 #   scripts/podman-package.sh [arch|debian|fedora|all] [--rebuild]

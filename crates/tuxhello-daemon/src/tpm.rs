@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Decides, at startup, what the TPM is used for: sealing the store's master
 //! key and backing PINs (see `tuxhello_store::tpm` and `pin.rs`).
 

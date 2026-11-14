@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Per-user limits that span every method (PLAN.md §6.3).
 //!
 //! * **Rate limit.** Too many failed attempts for one user in a short time,

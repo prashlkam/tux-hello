@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Tux Hello daemon configuration: /etc/tuxhello/config.toml
 # All keys are optional; the values below are the defaults.
 

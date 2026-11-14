@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Make the release tarball: the source tree plus every crate it depends on
 # (vendor/), so that distribution builds work with no network access.
 #

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Fingerprint backend: a client of fprintd (PLAN.md §5.3).
 //!
 //! We don't talk to sensors ourselves. fprintd/libfprint already support

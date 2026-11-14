@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Software FIDO2 authenticator for tests. Compiled only for unit tests and
 //! with the test-only `stub-backend` feature.
 //!

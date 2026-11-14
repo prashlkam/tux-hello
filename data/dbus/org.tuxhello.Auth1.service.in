@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # D-Bus system bus activation for tuxhellod.
 # On systemd systems activation is delegated to tuxhellod.service; elsewhere
 # dbus-daemon starts the binary itself as the "tuxhello" user.

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! `pam_tuxhello.so` — thin PAM front end for the Tux Hello daemon.
 //!
 //! The module does no device I/O and no matching. It forwards the request to

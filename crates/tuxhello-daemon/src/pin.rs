@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! PIN backend (PLAN.md §5.1).
 //!
 //! * **With a TPM:** the PIN is the auth value of a sealed TPM object. Only

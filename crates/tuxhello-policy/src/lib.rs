@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Policy: which authentication methods are acceptable for which PAM service,
 //! user and group (PLAN.md §6).
 //!

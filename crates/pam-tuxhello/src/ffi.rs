@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Minimal hand-written Linux-PAM bindings: only what the module uses.
 //! Values come from <security/_pam_types.h>.
 

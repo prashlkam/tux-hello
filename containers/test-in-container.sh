@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Runs inside a test container (see scripts/podman-test.sh). The source tree is
 # mounted read-only at /src; build output goes to the /target volume.
 set -euo pipefail

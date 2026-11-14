@@ -1,4 +1,10 @@
 /*
+ * SPDX-FileCopyrightText: 2026 Tux Hello contributors
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/*
  * th-fpscan: drive libfprint's virtual fingerprint device (FP_VIRTUAL_DEVICE)
  * from tests. The device only listens while fprintd has it open (during a
  * verify or enroll), so this keeps retrying until the socket accepts.

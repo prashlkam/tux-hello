@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Development/test image: Arch Linux with every Phase 1 build, test and packaging dependency.
 FROM docker.io/library/archlinux:latest
 RUN pacman -Syu --noconfirm --needed \

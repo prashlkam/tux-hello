@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Pure text transformations on PAM service files. No I/O here, so every
 //! rule about what we change is unit-tested.
 //!

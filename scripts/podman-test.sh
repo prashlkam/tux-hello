@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Build and test Tux Hello inside distro containers with podman (rootless is fine).
 #
 #   scripts/podman-test.sh [arch|debian|fedora|all] [--shell] [--rebuild]

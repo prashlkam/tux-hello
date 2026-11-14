@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The `org.tuxhello.Manager1` D-Bus interface: enrolment and management.
 //!
 //! Authorisation (Phase 1):

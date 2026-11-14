@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Licensing for files that cannot carry an SPDX header: documentation (kept
+# free of comment clutter), generated files, and Debian control files whose
+# formats have no comment syntax. Everything else has a header; check with
+# `reuse lint` (CI runs it on every push).
+version = 1
+
+[[annotations]]
+path = [
+    "**.md",
+    "Cargo.lock",
+    "packaging/debian/changelog",
+    "packaging/debian/control",
+    "packaging/debian/copyright",
+    "packaging/debian/source/format",
+]
+SPDX-FileCopyrightText = "2026 Tux Hello contributors"
+SPDX-License-Identifier = "GPL-3.0-or-later"

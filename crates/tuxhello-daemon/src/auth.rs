@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The `org.tuxhello.Auth1` D-Bus interface (used by the PAM module).
 
 use std::collections::HashMap;

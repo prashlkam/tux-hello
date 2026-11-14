@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Runs inside a container (see scripts/podman-package.sh), with no network:
 # builds the distribution package from the release tarball, installs it, uses
 # it for a real PAM login, removes it, and checks that nothing is left in PAM.

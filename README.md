@@ -78,6 +78,8 @@ cargo build --workspace
 cargo test --workspace --all-features
 ```
 
+Every file carries an SPDX licence header ([REUSE](https://reuse.software/)); new files need one too, and CI checks with `reuse lint` (`pipx run reuse lint` locally).
+
 To build and install with system paths (for packagers):
 
 ```sh

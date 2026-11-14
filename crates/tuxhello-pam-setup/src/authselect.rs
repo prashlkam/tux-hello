@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! System-wide mode on Fedora and RHEL, through authselect.
 //!
 //! authselect generates `/etc/pam.d/system-auth` from a profile; editing the

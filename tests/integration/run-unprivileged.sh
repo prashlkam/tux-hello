@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2026 Tux Hello contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # End-to-end PAM test that needs NO root and changes nothing on the system.
 #
 # - A private dbus-daemon stands in for the system bus (DBUS_SYSTEM_BUS_ADDRESS;

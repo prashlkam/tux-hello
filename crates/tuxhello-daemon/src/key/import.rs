@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Import of `pam_u2f` key files (PLAN.md §5.5), so that people who already
 //! use pam_u2f do not have to enrol their keys again.
 //!

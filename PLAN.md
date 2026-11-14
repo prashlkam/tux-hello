@@ -665,7 +665,7 @@ Estimates assume 2–3 core developers. They are indicative and not commitments.
 
 ### Phase 0 — Foundations (≈ 4 weeks)
 - [x] Workspace, Meson wrapper, CI (lint, `cargo-deny`, tests, MSRV, distro containers). *Not yet compiled locally: see "Phase 0 status" below.*
-- [x] Licence choice: **GPL-3.0-or-later for the whole project** ([ADR 0001](docs/adr/0001-licensing.md), decided 2026-11-12). The text is in `LICENSE`. *Still to do:* SPDX headers in source files and `reuse lint` in CI.
+- [x] Licence choice: **GPL-3.0-or-later for the whole project** ([ADR 0001](docs/adr/0001-licensing.md), decided 2026-11-12). The text is in `LICENSE`. SPDX headers on every file and `reuse lint` in CI (2026-11-14).
 - [x] Spike: PAM module (libdbus) ↔ daemon (zbus) with a configurable stub backend, plus an end-to-end test using a bundled `th-pamtest` harness instead of `pamtester` ([ADR 0002](docs/adr/0002-ipc-and-pam-protocol.md), `tests/integration/pam-spike.sh`).
 - [x] Decide on the FIDO2 binding ([ADR 0003](docs/adr/0003-fido2-binding.md)) and the ONNX Runtime distribution strategy ([ADR 0004](docs/adr/0004-onnx-runtime.md)).
 - [ ] Model selection and **licence vetting** for face/voice models (see §17). The checklist and candidates are in [ADR 0005](docs/adr/0005-model-licensing.md); none are verified yet.

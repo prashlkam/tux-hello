@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Tux Hello contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! `tuxhello-pam-setup` — add or remove Tux Hello in PAM services, safely.
 //!
 //! * Per-service edits (default, every distro): a marked block in front of
