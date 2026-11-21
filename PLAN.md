@@ -692,7 +692,7 @@ Estimates assume 2–3 core developers. They are indicative and not commitments.
 
 **CI (2026-11-14, run 43560191156 at `de2351c`):** all 14 jobs green, the first green run since 2026-11-10: `lint`, `test`, `msrv` (1.85), `deny`, `reuse`, `meson`, `integration-unprivileged`, `integration-host`, `integration-distro` and `package` on Arch, Debian and Fedora. Getting there took four fixes: test code that dropped an `ExitCode` (rejected by newer stable rustc), `publish = false` for the workspace crates (cargo-deny wildcard check), copies of the CLI in `pam-spike.sh` (test users cannot enter `/home/runner`), and four advisory ignores in `deny.toml`. The ignores are RUSTSEC-2026-0370/0371/0372 (`zvariant` and friends unmaintained; the successor, zbus 6, needs rustc 1.89) and RUSTSEC-2026-0387 (`crypto-bigint` timing; `p256` only verifies signatures over public data, and every fixed release needs rustc 1.87). Both stay until the MSRV moves past 1.85; `deny.toml` records the reasons and removal conditions.
 
-What the containers cannot show is still open, and it is what the exit criteria ask for:
+What the containers cannot show is still open, and it is what the exit criteria ask for. The step-by-step checklist and results table are in [docs/hardware-test-plan.md](docs/hardware-test-plan.md):
 
 - a **physical security key**, a **real finger** on a real reader, and a **physical TPM** (everything so far used a software authenticator, libfprint's virtual sensor and `swtpm`);
 - a run on real **GNOME, KDE and Sway** sessions (`sudo`, polkit and the lock screen);
