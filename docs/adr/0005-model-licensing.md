@@ -1,7 +1,7 @@
 # ADR 0005: Model selection and licence vetting
 
-- **Status:** Face models vetted 2026-11-21: **no existing face embedder passes.** The way forward below was **accepted** on 2026-11-21. Nothing ships before the legal review (step 4). Voice models are not vetted yet.
-- **Date:** 2026-11-09, face vetting and decision 2026-11-21
+- **Status:** Face models vetted 2026-11-21: **no existing face embedder passes.** The face way forward was **accepted** on 2026-11-21. Nothing ships before the legal review (step 4). Voice models vetted on 2026-11-21: only AASIST passes. The voice way forward was **accepted** on 2026-11-21, under the same legal-review condition.
+- **Date:** 2026-11-09, face vetting and decision 2026-11-21, voice vetting 2026-11-21
 
 ## Why this matters
 
@@ -70,16 +70,60 @@ Detection is easier. YuNet's architecture and training code are free (BSD-3-Clau
 
 Meanwhile, Phase 2's capture, alignment, quality gate and matching code can go ahead against any ONNX model. The model is a replaceable input.
 
-## Voice models (not vetted yet)
+## Voice models: findings (2026-11-21)
 
-The "Believed licence" column is **from memory and must be checked against the upstream source**, the same way as the face models above.
+Every upstream was read directly. Commits are the HEAD at the time of reading; Hugging Face revisions are the model repo's current `sha`.
 
-| Purpose | Candidate | Believed licence (unverified) | Training-data concerns to check |
+### Voice activity detection
+
+| Candidate | Weights licence | Training data | Result |
 |---|---|---|---|
-| VAD | Silero VAD | MIT | — |
-| Speaker embedding | SpeechBrain ECAPA-TDNN (VoxCeleb) | Apache-2.0 | VoxCeleb terms (VoxCeleb is built from celebrity YouTube videos, so expect the same problem as the face datasets) |
-| Spoken-digit ASR | Vosk small models | Apache-2.0 | — |
-| Voice anti-spoofing | AASIST | Code MIT; weights to check | ASVspoof dataset terms |
+| **Silero VAD** | **MIT** (snakers4/silero-vad `LICENSE` @ `066409f3`) | **Undisclosed.** The README only says "huge corpora that include over 6000 languages". Issues #98 (2021) and #780 (2026) asked for the training data and were closed without an answer. | ❌ Fails 3 (ToxicCandy). |
+
+We don't need a learned VAD here. The input is a short prompted utterance in a quiet room (PLAN.md §5.4 already rejects noisy input), so an **energy and SNR endpointer written in Rust** does the job with no model at all.
+
+### Spoken-digit recognition (the ASR check)
+
+| Candidate | Weights licence | Training data | Result |
+|---|---|---|---|
+| **Vosk** `vosk-model-small-en-us-0.15` | Apache-2.0 (alphacephei.com/vosk/models) | Not documented upstream | ❌ Fails 3. |
+| Vosk `vosk-model-en-us-librispeech-0.2` (Kaldi's LibriSpeech model, repackaged) | Apache-2.0 | LibriSpeech, **CC BY 4.0** (OpenSLR SLR12) | ⚠️ The data is clean, but it's 845 MB and the exact recipe of the repackaged files isn't documented. Usable as a reference, too big to ship. |
+| **Whisper** (tiny / tiny.en) | MIT (openai/whisper README @ `86098128`; HF revisions `169d4a43`, `87c71024` tagged Apache-2.0) | "680,000 hours of audio … collected from the internet", not disclosed (model card) | ❌ Fails 3 (ToxicCandy). |
+
+Ten digit words are a keyword-spotting problem, not general ASR. **Google Speech Commands** (CC BY 4.0, HF `google/speech_commands` @ `57ba463a`) contains "zero" to "nine" from thousands of consenting speakers, and LibriSpeech adds connected speech. A small digit recogniser trained on these with free code passes all five checks, and should be far smaller than any Vosk model.
+
+### Speaker embedding
+
+| Candidate | Weights licence | Training data | Result |
+|---|---|---|---|
+| **SpeechBrain ECAPA-TDNN** (`speechbrain/spkrec-ecapa-voxceleb` @ `0f99f2d0`) | Apache-2.0 | **VoxCeleb.** Only the metadata is licensed (CC BY-SA 4.0). The audio is interviews of celebrities on YouTube, owned by the uploaders, collected without the speakers' consent, and no longer distributed by Oxford. | ❌ Fails 3: scraped without consent. |
+| pyannote `embedding` (@ `4db48997`), WeSpeaker ResNet34 VoxCeleb (`Wespeaker/…` @ `f0c48c29`, `pyannote/…` @ `837717dd`) | MIT / CC BY 4.0 | VoxCeleb | ❌ Same as above. |
+| NVIDIA TitaNet-L (`nvidia/speakerverification_en_titanet_large` @ `0dc382f4`) | CC BY 4.0 | VoxCeleb 1+2, Fisher, Switchboard, LibriSpeech, NIST SRE | ❌ VoxCeleb, plus Fisher, Switchboard and SRE, which are paid LDC corpora that can't be redistributed. |
+| WeSpeaker ResNet34 CN-Celeb (`Wespeaker/wespeaker-cnceleb-resnet34-LM` @ `ed25c1ec`) | Apache-2.0 | CN-Celeb. OpenSLR SLR82 labels it CC BY-SA 4.0, but it is 3,000 Chinese celebrities recorded "in the wild" from media Tsinghua doesn't own. | ❌ Fails 3, for the same reason as VoxCeleb. |
+| 3D-Speaker models (modelscope/3D-Speaker @ `065629c3`; e.g. ModelScope `iic/speech_eres2netv2_sv_zh-cn_16k-common`, Apache-2.0) | Apache-2.0 | The 3D-Speaker dataset is recorded on devices rather than scraped, but its site licenses only the **metadata** (CC BY-SA 4.0). The audio's terms and the speakers' consent aren't stated. Some published models also mix in VoxCeleb, CN-Celeb or internal data. | ⚠️ Not proven. This is the only lead worth a follow-up question to the authors. |
+
+Licence-clean speech with speaker labels does exist: **LibriSpeech** (CC BY 4.0, about 2,400 speakers) and **VCTK** (CC BY 4.0, HF `CSTR-Edinburgh/vctk` @ `31539806`, 110 speakers), plus **Common Voice** (CC0, many more speakers). An ECAPA model trained on these with SpeechBrain's Apache-2.0 recipe would pass. Common Voice's download terms are believed to forbid trying to identify its speakers. That needs checking, and a legal opinion on whether training a speaker *verifier* on anonymous client IDs is allowed. Without Common Voice, accuracy will be lower than the VoxCeleb models. For a method that is already second-factor only (§5.4), that's acceptable.
+
+### Anti-spoofing
+
+| Candidate | Weights licence | Training data | Result |
+|---|---|---|---|
+| **AASIST** and AASIST-L (`models/weights/AASIST.pth`, `AASIST-L.pth` in clovaai/aasist @ `a04c9863`) | **MIT**, the repository `LICENSE`, which covers the weights committed alongside the code | **ASVspoof 2019 LA.** Edinburgh DataShare record 10283/3336 lists the licence as the **Open Data Commons Attribution License**. The genuine speech is VCTK (CC BY 4.0). | ✅ **Passes checks 1–3, the only voice model that does.** Check 4 looks good: the data is free, and so is the training code. Still needs the legal review (check 5). |
+
+The caveat with AASIST is quality, not licence: ASVspoof 2019's fakes come from 2019-era speech synthesis, and today's voice clones are much better. Plan to retrain it on newer, free spoofing data, and check that data's terms first. This doesn't change the fact that voice must stay a second factor.
+
+## Voice: conclusion
+
+Same result as face, with one exception. **Only AASIST can ship.** Every published VAD, digit ASR and speaker-embedding model has a permissive licence over training data that is undisclosed, scraped or paid.
+
+Unlike face, though, **all of voice can be built licence-clean** with modest effort. **Decision (accepted 2026-11-21):**
+
+1. **VAD:** an energy and SNR endpointer in Rust. No model.
+2. **Digit ASR:** train a small keyword-spotting model on Speech Commands and LibriSpeech.
+3. **Speaker embedding:** train ECAPA-TDNN on LibriSpeech and VCTK, and add Common Voice if the legal review allows it. Until then, `speechbrain/spkrec-ecapa-voxceleb` can be a `contrib` model installed by the admin, the same arrangement as the face embedder.
+4. **Anti-spoofing:** ship AASIST after legal review. Retrain it on newer spoofing data later.
+
+Voice is Phase 4, so none of this is urgent. It goes into the Phase 4 plan, together with the legal review.
 
 ## Model manifest
 
