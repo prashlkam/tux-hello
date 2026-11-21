@@ -1,9 +1,3 @@
-<!--
-SPDX-FileCopyrightText: 2026 Tux Hello contributors
-
-SPDX-License-Identifier: GPL-3.0-or-later
--->
-
 # Phase 1 hardware test plan
 
 The container suite proves the logic. This checklist covers what containers can't: a **physical TPM**, a **physical security key**, a **real finger** on a real reader, and real **GNOME, KDE and Sway** sessions. Phase 1 is finished when every row in [Results](#results) passes (PLAN.md §16, Phase 1 exit criteria).
